@@ -1,0 +1,74 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
+#
+# Framework 13 AMD image
+# CPU: AMD Ryzen 7040U (Phoenix, Zen 4, integrated Radeon 780M)
+# GPU: Integrated AMD RDNA3 (gfx1103) — no discrete GPU
+# RAM: Per your configuration
+# Display: Framework 13" panel
+# Special: Laptop power management, Framework hardware quirks
+#
+# Published to: ghcr.io/USERNAME/fedora-cosmic-framework:latest
+
+name: fedora-cosmic-framework
+description: Fedora Atomic COSMIC for Framework 13 AMD
+
+base-image: quay.io/fedora-ostree-desktops/cosmic-atomic
+image-version: 44
+
+modules:
+  # Import everything shared with the desktop
+  - from-file: common-modules.yml
+
+  # ─────────────────────────────────────────────
+  # FRAMEWORK-SPECIFIC PACKAGES
+  # ─────────────────────────────────────────────
+  - type: dnf
+    install:
+      packages:
+        # Lid switch, backlight, ambient light sensor support
+        - iio-sensor-proxy
+        # Note: power-profiles-daemon conflicts with tuned-ppd (shipped in base)
+        # tuned-ppd provides the same ppd-service D-Bus interface
+
+  # ─────────────────────────────────────────────
+  # FRAMEWORK-SPECIFIC AMD GPU CONFIG
+  # ─────────────────────────────────────────────
+  # Framework 13 AMD uses Ryzen 7040 (Phoenix) which reports as gfx1036.
+  # ROCm needs HSA_OVERRIDE_GFX_VERSION to use compute on RDNA3 APUs.
+  - type: script
+    scripts:
+      - configure-amd-gpu-framework.sh
+
+  # ─────────────────────────────────────────────
+  # HIBERNATION: Suspend-then-hibernate on lid close
+  # ─────────────────────────────────────────────
+  # Bakes in: sleep.conf, logind.conf, SELinux policy, post-install script.
+  # The resume= kernel parameter is set post-install by enable-hibernation.sh
+  # because the swap partition UUID is unique per installation.
+  # See docs/hibernation-setup.md for full details.
+  - type: script
+    scripts:
+      - configure-hibernation.sh
+
+  # ─────────────────────────────────────────────
+  # PLACE THE POST-INSTALL SCRIPT
+  # ─────────────────────────────────────────────
+  # enable-hibernation.sh is copied to /usr/local/bin/ so it can be run
+  # after first boot. It sets the resume= kernel parameter via rpm-ostree kargs.
+  - type: files
+    files:
+      - source: hibernation/enable-hibernation.sh
+        destination: /usr/local/bin/enable-hibernation.sh
+
+  # ─────────────────────────────────────────────
+  # OS IDENTITY
+  # ─────────────────────────────────────────────
+  - type: os-release
+    properties:
+      NAME: Fedora Cosmic Atomic (Framework)
+      PRETTY_NAME: Fedora Cosmic Atomic for Framework 13 AMD
+      VARIANT: Framework
+      VARIANT_ID: framework
+
+  - type: signing

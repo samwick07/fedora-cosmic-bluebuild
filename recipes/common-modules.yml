@@ -1,0 +1,141 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+#
+# Shared modules for both Framework 13 and desktop.
+# Both machines are all-AMD (Framework: Ryzen 7040 APU, Desktop: Ryzen 9950X + RX 9070 XT).
+# Anything identical between both machines goes here.
+# Each recipe file imports this via `from-file: common-modules.yml`.
+
+modules:
+  # ─────────────────────────────────────────────
+  # STATIC CONFIG FILES
+  # ─────────────────────────────────────────────
+  # Files in files/ get copied into the image root during build.
+  # This also populates the build context so script modules can find scripts/.
+  - type: files
+    files:
+      - source: .
+        destination: /
+
+  # ─────────────────────────────────────────────
+  # RPM PACKAGES (shared between both machines)
+  # ─────────────────────────────────────────────
+  - type: dnf
+    repos:
+      copr:
+        - scottames/ghostty        # Ghostty terminal
+        - atim/starship            # Starship prompt
+        - lilay/topgrade           # topgrade system updater
+        - pgaskin/zotero           # Zotero reference manager
+      files:
+        - https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+        - https://packages.microsoft.com/yumrepos/vscode/config.repo
+      keys:
+        - https://pkgs.tailscale.com/stable/fedora/repo.gpg
+        - https://packages.microsoft.com/keys/microsoft.asc
+
+    install:
+      install-weak-deps: false
+      packages:
+        # ── System tools ──
+        - tailscale
+        - restic
+        - pigz
+        - btop
+        - fastfetch
+        - tmux
+        - git
+        - starship
+        - micro
+        - ghostty
+        - topgrade
+
+        # ── Filesystem support ──
+        - ntfs-3g
+        - exfatprogs
+        - cifs-utils
+        - gdisk
+
+        # ── Hardware diagnostics ──
+        - smartmontools
+        - nvme-cli
+        - lm_sensors
+
+        # ── Networking ──
+        - nmap
+        - tcpdump
+        - traceroute
+
+        # ── Virtualization ──
+        - virt-manager
+        - qemu-kvm
+        - libvirt
+        - libvirt-daemon-kvm
+
+        # ── Containers & dev ──
+        - podman
+        - toolbox
+        - distrobox
+        - python3
+        - python3-pip
+        - uv
+
+        # ── AMD GPU / ROCm (both machines are AMD) ──
+        - rocm-opencl
+        - rocm-clinfo
+        - rocminfo
+
+        # ── Media & OCR ──
+        - tesseract
+
+        # ── Creative tools ──
+        - darktable
+        - inkscape
+        - gimp
+        - vlc
+        - calibre
+        - zotero
+
+        # ── Code ──
+        - code
+
+    remove:
+      packages:
+        - firefox
+        - firefox-langpacks
+
+  # ─────────────────────────────────────────────
+  # SYSTEMD SERVICES
+  # ─────────────────────────────────────────────
+  - type: systemd
+    system:
+      enabled:
+        - tailscaled.service
+        - libvirtd.service
+
+  # ─────────────────────────────────────────────
+  # FLATPAKS (shared defaults)
+  # ─────────────────────────────────────────────
+  - type: default-flatpaks
+    configurations:
+      - notify: true
+        scope: system
+        install:
+          - org.mozilla.firefox
+          - io.github.zen_browser.zen
+          - com.github.tchx84.Flatseal
+          - it.mijorus.gearlever
+          - org.videolan.VLC
+      - scope: user
+
+  # ─────────────────────────────────────────────
+  # SHARED BUILD SCRIPTS
+  # ─────────────────────────────────────────────
+  - type: script
+    scripts:
+      - enable-flathub.sh
+
+  # ─────────────────────────────────────────────
+  # INITRAMFS (regenerate after all changes)
+  # ─────────────────────────────────────────────
+  - type: initramfs

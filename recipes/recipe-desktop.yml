@@ -1,0 +1,87 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
+#
+# Desktop image
+# Motherboard: ASUS ROG STRIX X870-I GAMING WIFI
+# CPU: AMD Ryzen 9 9950X (16-core Zen 5, Granite Ridge)
+# GPU: AMD Radeon RX 9070 XT (Navi 48, RDNA 4, discrete)
+# RAM: 96GB DDR5-5600 (2x 48GB)
+# Storage: 4TB + 2TB Crucial T700 NVMe
+# Network: Intel I226-V Ethernet + MediaTek MT7927 Wi-Fi 7
+# Peripherals: PiKVM, SCR3500 smart card reader, ROG STRIX HIVE II
+#
+# Published to: ghcr.io/USERNAME/fedora-cosmic-desktop:latest
+
+name: fedora-cosmic-desktop
+description: Fedora Atomic COSMIC for desktop (Ryzen 9950X + RX 9070 XT)
+
+base-image: quay.io/fedora-ostree-desktops/cosmic-atomic
+image-version: 44
+
+modules:
+  # Import everything shared with the Framework
+  - from-file: common-modules.yml
+
+  # ─────────────────────────────────────────────
+  # DESKTOP-SPECIFIC PACKAGES
+  # ─────────────────────────────────────────────
+  - type: dnf
+    install:
+      packages:
+        # ── ASUS motherboard support ──
+        # ASUS ROG STRIX HIVE II and RGB control
+        - asusctl
+        # Wi-Fi 7 (MediaTek MT7927 / Filogic 380) — driver should be in kernel
+        # but firmware may be needed:
+        - linux-firmware
+        # Smart card reader (SCR3500 A Contact Reader)
+        - pcsc-lite
+        - pcsc-lite-ccid
+        # ── No power-profiles-daemon (not a laptop) ──
+        # ── No fingerprint reader ──
+
+  # ─────────────────────────────────────────────
+  # VFIO: PCIe passthrough for Windows 11 VM
+  # ─────────────────────────────────────────────
+  # The 2TB NVMe (nvme1n1) is passed through to a Windows 11 KVM VM
+  # as a PCIe device. IOMMU is enabled statically; the vfio-pci.ids
+  # value depends on the specific NVMe controller and is set post-install
+  # by enable-vfio.sh.
+  - type: kargs
+    arch: x86_64
+    kargs:
+      - amd_iommu=on
+      - iommu=pt
+
+  # ─────────────────────────────────────────────
+  # DESKTOP-SPECIFIC AMD GPU CONFIG
+  # ─────────────────────────────────────────────
+  # RX 9070 XT is Navi 48 (RDNA 4). ROCm support for RDNA 4 is newer
+  # and may use different gfx version strings than the Framework's APU.
+  # RDNA 4 compute may report as gfx12 or similar — verify after install with:
+  #   rocminfo | grep gfx
+  - type: script
+    scripts:
+      - configure-amd-gpu-desktop.sh
+
+  # ─────────────────────────────────────────────
+  # VFIO POST-INSTALL SCRIPT
+  # ─────────────────────────────────────────────
+  # enable-vfio.sh detects the 2TB NVMe's vendor:device ID and sets
+  # the vfio-pci.ids kernel parameter. Placed at /usr/local/bin/.
+  - type: files
+    files:
+      - source: vfio/enable-vfio.sh
+        destination: /usr/local/bin/enable-vfio.sh
+
+  # ─────────────────────────────────────────────
+  # OS IDENTITY
+  # ─────────────────────────────────────────────
+  - type: os-release
+    properties:
+      NAME: Fedora Cosmic Atomic (Desktop)
+      PRETTY_NAME: Fedora Cosmic Atomic for Desktop (9950X + 9070 XT)
+      VARIANT: Desktop
+      VARIANT_ID: desktop
+
+  - type: signing
