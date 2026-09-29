@@ -25,17 +25,10 @@ modules:
   # ─────────────────────────────────────────────
   # DESKTOP-SPECIFIC PACKAGES
   # ─────────────────────────────────────────────
-  - type: dnf
-    install:
-      packages:
-        # ── ASUS motherboard support ──
-        # ASUS ROG STRIX HIVE II and RGB control
-        # asusctl is in the lizardue/cachyos-rising COPR, not default repos.
-        # Enable it after install if needed: sudo dnf copr enable lizardue/cachyos-rising
-        # ── Already in base image (don't re-install) ──
-        # linux-firmware, pcsc-lite, pcsc-lite-ccid all ship in cosmic-atomic base
-        # ── No power-profiles-daemon (not a laptop) ──
-        # ── No fingerprint reader ──
+  # No additional packages needed — everything below is already in the
+  # cosmic-atomic base image or handled differently:
+  #   - asusctl: needs lizardue/cachyos-rising COPR, install post-rebase
+  #   - linux-firmware, pcsc-lite, pcsc-lite-ccid: already in base image
 
   # ─────────────────────────────────────────────
   # VFIO: PCIe passthrough for Windows 11 VM
