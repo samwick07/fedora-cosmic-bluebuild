@@ -3,8 +3,14 @@
 #
 # Shared modules for both Framework 13 and desktop.
 # Both machines are all-AMD (Framework: Ryzen 7040 APU, Desktop: Ryzen 9950X + RX 9070 XT).
-# Anything identical between both machines goes here.
-# Each recipe file imports this via `from-file: common-modules.yml`.
+#
+# LAYERING POLICY:
+#   The base image must stay as close to stock cosmic-atomic as possible.
+#   Only layer what cannot be reliably containerized:
+#     - Daemons with kernel/systemd integration (tailscale, libvirt)
+#     - Tools requiring direct hardware access (restic, smartmontools, gdisk)
+#     - Tools that must run in the host shell (starship, ghostty, tmux, topgrade)
+#   Everything else lives in distrobox containers or flatpaks.
 
 modules:
   # ─────────────────────────────────────────────
@@ -18,86 +24,52 @@ modules:
         destination: /
 
   # ─────────────────────────────────────────────
-  # RPM PACKAGES (shared between both machines)
+  # RPM PACKAGES (host image only — cannot be containerized)
   # ─────────────────────────────────────────────
   - type: dnf
     repos:
       copr:
-        - scottames/ghostty        # Ghostty terminal
-        - atim/starship            # Starship prompt
-        - lilay/topgrade           # topgrade system updater
-        - pgaskin/zotero           # Zotero reference manager
+        - scottames/ghostty        # Ghostty terminal (host shell)
+        - atim/starship            # Starship prompt (host shell)
+        - lilay/topgrade           # topgrade system updater (needs host rpm-ostree/flatpak)
       files:
         - https://pkgs.tailscale.com/stable/fedora/tailscale.repo
-        - https://packages.microsoft.com/yumrepos/vscode/config.repo
       keys:
         - https://pkgs.tailscale.com/stable/fedora/repo.gpg
-        - https://packages.microsoft.com/keys/microsoft.asc
 
     install:
       install-weak-deps: false
       packages:
-        # ── System tools ──
-        - tailscale
+        # ── Networking (kernel/systemd integration) ──
+        - tailscale               # systemd service, /dev/net/tun, kernel networking
+
+        # ── Backup (needs sudoers, root-level access) ──
         - restic
-        - pigz
-        - btop
-        - fastfetch
-        - tmux
-        - git
-        - starship
-        - micro
-        - ghostty
-        - topgrade
 
-        # ── Filesystem support ──
-        - ntfs-3g
-        - exfatprogs
-        - cifs-utils
-        - gdisk
+        # ── Host shell tools (must run on host, not in container) ──
+        - git                     # full git (base only has git-core), for dotfiles/yadm
+        - starship                # shell prompt, integrates with host shell
+        - ghostty                 # terminal emulator, launches on host
+        - tmux                    # terminal multiplexer, runs on host
+        - topgrade                # system updater, needs rpm-ostree + flatpak on host
 
-        # ── Hardware diagnostics ──
-        - smartmontools
-        - nvme-cli
-        - lm_sensors
+        # ── Hardware diagnostics (direct /dev access) ──
+        - gdisk                   # partition tool, direct disk access
+        - smartmontools           # SMART diagnostics, /dev/sdX
+        - lm_sensors              # hardware sensors, /sys access
 
-        # ── Networking ──
-        - nmap
-        - tcpdump
-        - traceroute
+        # ── Virtualization (kernel KVM, systemd services) ──
+        - virt-manager            # connects to system libvirt socket
+        - qemu-kvm                # /dev/kvm, kernel module
+        - libvirt                 # systemd service, network bridges
+        - libvirt-daemon-kvm      # KVM management daemon
 
-        # ── Virtualization ──
-        - virt-manager
-        - qemu-kvm
-        - libvirt
-        - libvirt-daemon-kvm
+        # ── Container runtime (needs podman on host) ──
+        - distrobox               # creates containers that integrate with host
 
-        # ── Containers & dev ──
-        - podman
-        - toolbox
-        - distrobox
-        - python3
-        - python3-pip
-        - uv
-
-        # ── AMD GPU / ROCm (both machines are AMD) ──
-        - rocm-opencl
-        - rocm-clinfo
-        - rocminfo
-
-        # ── Media & OCR ──
-        - tesseract
-
-        # ── Creative tools ──
-        - darktable
-        - inkscape
-        - gimp
-        - vlc
-        - calibre
-        - zotero
-
-        # ── Code ──
-        - code
+        # ── Already in base image (do NOT re-install) ──
+        # podman, toolbox, python3, nvme-cli, ntfs-3g, exfatprogs, cifs-utils
+        # linux-firmware, mesa drivers, vulkan-loader, pipewire
 
     remove:
       packages:
@@ -114,18 +86,30 @@ modules:
         - libvirtd.service
 
   # ─────────────────────────────────────────────
-  # FLATPAKS (shared defaults)
+  # FLATPAKS (GUI apps — sandboxed, auto-updated)
   # ─────────────────────────────────────────────
   - type: default-flatpaks
     configurations:
       - notify: true
         scope: system
         install:
+          # ── Browsers ──
           - org.mozilla.firefox
           - io.github.zen_browser.zen
+          # ── System utilities ──
           - com.github.tchx84.Flatseal
           - it.mijorus.gearlever
+          # ── Media ──
           - org.videolan.VLC
+          # ── Creative ──
+          - org.darktable.Darktable
+          - org.inkscape.Inkscape
+          - org.gimp.GIMP
+          # ── Productivity ──
+          - com.calibre_ebook.calibre
+          - org.zotero.Zotero
+          # ── Development ──
+          - com.visualstudio.code
       - scope: user
 
   # ─────────────────────────────────────────────
@@ -134,6 +118,26 @@ modules:
   - type: script
     scripts:
       - enable-flathub.sh
+
+  # ─────────────────────────────────────────────
+  # DISTROBOX CONTAINER DEFINITIONS
+  # ─────────────────────────────────────────────
+  # Bakes in the setup script and container .ini definitions so they survive
+  # rebases/reinstalls. After first boot, run: /usr/local/bin/distrobox-setup.sh
+  # The script is idempotent (skips existing containers) and supports --recreate.
+  # Update containers in-place with: distrobox upgrade --all
+  #
+  # Containers:
+  #   fedora-ws   — Fedora Workstation: system CLI tools, dev utilities
+  #   rocm        — AMD ROCm: GPU compute (OpenCL, rocminfo) with device passthrough
+  #   debian      — Debian Trixie: browsing, Signal, Jellyfin, OCR, media
+  #   ClaudeCode  — Ubuntu 24.04: Claude Desktop app + dev tools
+  - type: files
+    files:
+      - source: distrobox/distrobox-setup.sh
+        destination: /usr/local/bin/distrobox-setup.sh
+      - source: distrobox/containers/
+        destination: /usr/local/share/distrobox/
 
   # ─────────────────────────────────────────────
   # INITRAMFS (regenerate after all changes)
