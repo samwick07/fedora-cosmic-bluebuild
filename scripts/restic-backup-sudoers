@@ -1,0 +1,8 @@
+# /etc/sudoers.d/restic-backup
+# Allows <user> to run restic without password for automated backups.
+# Scope is limited to the restic binary only — not arbitrary commands.
+# The env_keep directives pass through the repo location and password file
+# so the backup script's `export` statements reach the root process.
+
+Defaults:<user> env_keep += "RESTIC_REPOSITORY RESTIC_PASSWORD_FILE"
+<user> ALL=(root) NOPASSWD: /usr/bin/restic

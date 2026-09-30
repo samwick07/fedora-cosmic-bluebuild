@@ -128,22 +128,37 @@ systemctl suspend-then-hibernate
 If hibernation fails:
 - Verify Secure Boot is DISABLED in BIOS (required for resume from encrypted swap)
 - Verify the swap partition is large enough (96GB for 60GB RAM)
-- Check: `cat /proc/cmdstream` — should contain `resume=UUID=...`
+- Check: `cat /proc/cmdline` — should contain `resume=UUID=...`
 - Check: `swapon --show` — swap should be active
 
 ## Step 9: Mount the DAS
 
 ```bash
-# The DAS is LUKS-encrypted, GNOME may auto-mount it.
-# If not, unlock and mount manually:
+# The DAS is LUKS-encrypted. GNOME may auto-mount it when you click it
+# in the file manager. If not, unlock and mount manually:
+# (Device is /dev/sda1 when 4TB is removed and only DAS is on USB/SATA)
 sudo cryptsetup luksOpen /dev/sda1 luks-00000000-0000-0000-0000-000000000000
 sudo mount /dev/mapper/luks-00000000-0000-0000-0000-000000000000 /run/media/<user>/DAS
 ```
 
+Note: If the DAS device name differs (e.g. /dev/sdb1), check with `lsblk`.
+The LUKS UUID (00000000-0000-0000-0000-000000000000) stays constant.
+
 ## Step 10: Restore Data from Restic
 
+First, restore the restic password file (it's in the home directory backup):
+
 ```bash
-# Set up restic env vars
+# The password file is at ~/.restic/frmwrk-repo.pass in the backup
+# If you already restored /home/<user>/ below, it's there. If not:
+sudo RESTIC_REPOSITORY="/run/media/<user>/DAS/frmwrk-restic-repo" \
+  RESTIC_PASSWORD_FILE="$HOME/.restic/frmwrk-repo.pass" \
+  restic restore latest --target / --include /home/<user>/.restic/
+```
+
+Then restore the home directory (includes Documents, dotfiles, DoD certs, migration-prep):
+
+```bash
 export RESTIC_REPOSITORY="/run/media/<user>/DAS/frmwrk-restic-repo"
 export RESTIC_PASSWORD_FILE="$HOME/.restic/frmwrk-repo.pass"
 
@@ -151,16 +166,35 @@ export RESTIC_PASSWORD_FILE="$HOME/.restic/frmwrk-repo.pass"
 sudo RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
   restic snapshots
 
-# Restore home directory
+# Restore home directory (this includes the DoD cert bundle needed for Step 11)
 sudo RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
   restic restore latest --target / --include /home/<user>/
 
-# Restore system configs (if needed)
+# Restore system configs
 sudo RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
   restic restore latest --target / --include /etc/libvirt/
 sudo RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
   restic restore latest --target / --include /etc/NetworkManager/
 ```
+
+After restoring home, fix ownership (restic restores as root):
+
+```bash
+sudo chown -R <user>:<user> /home/<user>/
+```
+
+Also restore the restic sudoers config for passwordless restic:
+
+```bash
+# Reinstall the sudoers file (backed up in ~/migration-prep/)
+sudo install -m 0440 -o root -g root \
+  ~/migration-prep/bluebuild-recipe/scripts/restic-backup-sudoers \
+  /etc/sudoers.d/restic-backup
+sudo visudo -cf  # validate
+```
+
+Note: If the sudoers file isn't at that path, create it manually — see the
+"Restic Sudoers" section at the bottom of this guide.
 
 ## Step 11: Set Up CAC / Smart Card Reader
 
@@ -206,25 +240,28 @@ distrobox-list
 
 ## Step 13: Restore VM Manager VMs
 
-If you backed up the Win11VM XML and qcow2:
+The Win11VM XML and qcow2 are in the restic backup.
 
 ```bash
 # Ensure libvirtd is running
 sudo systemctl start libvirtd
 
-# Define the VM from the XML
+# The XML was backed up from /etc/libvirt/qemu/Win11VM.xml
+# and the qcow2 from /var/lib/libvirt/vm-images/Win11VM.qcow2
+# Restore both from restic (if not already restored in Step 10):
+sudo RESTIC_REPOSITORY="/run/media/<user>/DAS/frmwrk-restic-repo" \
+  RESTIC_PASSWORD_FILE="$HOME/.restic/frmwrk-repo.pass" \
+  restic restore latest --target / --include /etc/libvirt/qemu/
+sudo RESTIC_REPOSITORY="/run/media/<user>/DAS/frmwrk-restic-repo" \
+  RESTIC_PASSWORD_FILE="$HOME/.restic/frmwrk-repo.pass" \
+  restic restore latest --target / --include /var/lib/libvirt/vm-images/
+
+# Define the VM (if not auto-defined by libvirtd)
 sudo virsh define /etc/libvirt/qemu/Win11VM.xml
 
 # Verify
 virsh list --all
-```
-
-If the qcow2 needs to be restored from backup:
-```bash
-# Restore the qcow2 (513GB, takes a while)
-sudo RESTIC_REPOSITORY="/run/media/<user>/DAS/frmwrk-restic-repo" \
-  RESTIC_PASSWORD_FILE="$HOME/.restic/frmwrk-repo.pass" \
-  restic restore latest --target / --include /var/lib/libvirt/vm-images/
+# Should show: Win11VM (shut off)
 ```
 
 ## Step 14: Install Flatpaks
@@ -308,3 +345,44 @@ Wait 2-4 weeks after F45 release for COPR packages to catch up, then:
    rpm-ostree upgrade
    sudo systemctl reboot
    ```
+
+## Appendix: Restic Sudoers
+
+If the sudoers file isn't available from backup, create it manually:
+
+```bash
+sudo tee /etc/sudoers.d/restic-backup << 'EOF'
+# Allow passwordless restic for backup script
+Cmnd_Alias RESTIC = /usr/bin/restic
+<user> ALL=(root) NOPASSWD: RESTIC
+Defaults!RESTIC env_keep += "RESTIC_REPOSITORY RESTIC_PASSWORD_FILE"
+EOF
+sudo chmod 0440 /etc/sudoers.d/restic-backup
+sudo visudo -cf  # validate
+```
+
+This allows the backup script to run `sudo restic` without a password prompt,
+while preserving the RESTIC_REPOSITORY and RESTIC_PASSWORD_FILE environment
+variables that sudo normally strips.
+
+## Appendix: Restic Backup Script
+
+The backup script is at `/run/media/<user>/DAS/frmwrk_backup_command.sh` on the DAS.
+It backs up:
+
+- `~/` — user data (Documents, dotfiles, DoD certs, migration-prep, etc.)
+- `/var/lib/libvirt/vm-images/` — Win11VM.qcow2
+- `/var/lib/libvirt/images/` — libvirt default pool
+- `/etc/libvirt/` — ALL libvirt config (VM XMLs, storage pools, networks, hooks)
+- `/etc/fstab` — mount table
+- `/etc/crypttab` — LUKS UUIDs
+- `/boot/loader/entries/` — BLS boot entries
+- `/etc/NetworkManager/` — network connections + VPN configs
+- `/etc/systemd/system/` — custom systemd units
+- `~/migration-prep/` — BlueBuild recipe, cosign key
+
+Run after migration:
+
+```bash
+/run/media/<user>/DAS/frmwrk_backup_command.sh
+```
