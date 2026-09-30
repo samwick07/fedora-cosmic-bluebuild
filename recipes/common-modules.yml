@@ -139,6 +139,18 @@ modules:
         destination: /usr/local/bin/setup-cac.sh
 
   # ─────────────────────────────────────────────
+  # POST-INSTALL ORCHESTRATOR
+  # ─────────────────────────────────────────────
+  # Single script to configure the entire system after the final rebase.
+  # Handles: DAS mount, restic restore, hibernation, CAC/PKI, distrobox,
+  # libvirt VMs, flatpaks, Hermes restore. Idempotent — safe to re-run.
+  # Usage: sudo /usr/local/bin/post-install-setup.sh
+  - type: files
+    files:
+      - source: scripts/post-install-setup.sh
+        destination: /usr/local/bin/post-install-setup.sh
+
+  # ─────────────────────────────────────────────
   # DISTROBOX CONTAINER DEFINITIONS
   # ─────────────────────────────────────────────
   # Bakes in the setup script and container .ini definitions so they survive

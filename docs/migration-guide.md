@@ -99,18 +99,45 @@ rpm-ostree status
 
 ## Step 7: Enable Hibernation
 
-The swap partition UUID is unique to this install. Run the baked-in script:
+**This step and all subsequent steps are automated.** After the signed rebase
+and reboot, run the single orchestrator script:
 
 ```bash
-sudo /usr/local/bin/enable-hibernation.sh
+sudo /usr/local/bin/post-install-setup.sh
 ```
 
-This detects the swap UUID and sets the `resume=` kernel parameter via `rpm-ostree kargs`.
+This handles everything:
+1. Mount DAS and unlock restic repo
+2. Restore home directory, system configs, restic sudoers
+3. Enable hibernation (detects swap UUID, sets resume= karg)
+4. Configure CAC / smart card reader (DoD certs, OpenSC, browser NSS)
+5. Create distrobox containers
+6. Restore libvirt VMs (Win11VM XML + qcow2)
+7. Install flatpaks and pcsc socket overrides
+8. Restore Hermes config
 
-Reboot for the karg to take effect:
+The script is idempotent — safe to re-run. It tracks completed steps in
+`/var/lib/post-install-setup/`. You can also run individual steps:
+
 ```bash
-sudo systemctl reboot
+sudo post-install-setup.sh --list       # show step status
+sudo post-install-setup.sh --check      # verify everything
+sudo post-install-setup.sh --step 3     # run only hibernation
 ```
+
+**REBOOT after the script completes** (for the hibernation kargs to take effect).
+
+To iterate on the script as you adapt to COSMIC DE:
+```bash
+# Edit the script in the repo (it's baked into the image)
+nano ~/migration-prep/bluebuild-recipe/files/scripts/post-install-setup.sh
+git add -A && git commit -m "tweak: <change>" && git push
+# Next image build and rebase picks up your changes
+```
+
+The sections below describe what each step does, for reference.
+
+### Hibernation Details
 
 ## Step 8: Test Hibernation
 
