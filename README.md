@@ -1,163 +1,108 @@
-# Declarative Fedora Atomic COSMIC — BlueBuild Setup
+# fedora-cosmic-bluebuild — declarative Fedora Cosmic Atomic for two AMD machines
 
-## Overview
+One BlueBuild repository, two images, built **locally** and pushed to GHCR:
 
-Two-machine declarative setup using BlueBuild custom OCI images built from
-a single shared repository. Both machines run Fedora Atomic COSMIC with
-systemd-boot as the bootloader.
+| Image | Machine | Recipe |
+| --- | --- | --- |
+| `ghcr.io/samwick07/fedora-cosmic-framework:latest` | Framework 13 AMD (Ryzen 7040U, 780M) — laptop, hibernation, fingerprint | `recipes/recipe-framework.yml` |
+| `ghcr.io/samwick07/fedora-cosmic-desktop:latest` | ROG STRIX X870-I, Ryzen 9 9950X, RX 9070 XT — VFIO passthrough of a 2TB NVMe to a Win11 VM | `recipes/recipe-desktop.yml` |
 
-## Machines
+Base: `quay.io/fedora-ostree-desktops/cosmic-atomic:44`. Bootloader: GRUB
+(`docs/bootloader.md`). Shared content: `recipes/common-modules.yml`.
 
-### Framework 13 AMD (laptop)
-  - CPU: AMD Ryzen 7040U (Phoenix, Zen 4)
-  - GPU: Integrated Radeon 780M (RDNA3, gfx1036)
-  - Image: ghcr.io/USERNAME/fedora-cosmic-framework:latest
+## If the laptop is dead: the 6-line version
 
-### Desktop (ROG STRIX X870-I)
-  - CPU: AMD Ryzen 9 9950X (Granite Ridge, Zen 5, 16-core)
-  - GPU: AMD Radeon RX 9070 XT (Navi 48, RDNA 4, discrete)
-  - RAM: 96GB DDR5-5600 (2x 48GB)
-  - Storage: 4TB + 2TB Crucial T700 NVMe
-  - Network: Intel I226-V Ethernet + MediaTek MT7927 Wi-Fi 7
-  - Image: ghcr.io/USERNAME/fedora-cosmic-desktop:latest
-
-Both machines are all-AMD, so they share the same ROCm stack and GPU
-driver approach. The differences are laptop-specific (power management,
-fingerprint, ambient light sensor) vs desktop-specific (smart card reader,
-ASUS ROG features).
-
-## Repository structure
-
-```
-fedora-cosmic-framework/          ← GitHub repo
-├── .github/workflows/
-│   └── build.yml                 ← Builds BOTH images in parallel
-├── recipes/
-│   ├── common-modules.yml        ← 90% shared: packages, flatpaks, scripts
-│   ├── recipe-framework.yml      ← Laptop-specific: power, fingerprint, APU GPU
-│   └── recipe-desktop.yml        ← Desktop-specific: ASUS, smart card, dGPU
-├── scripts/
-│   ├── configure-amd-gpu-framework.sh   ← ROCm env for RDNA3 APU
-│   ├── configure-amd-gpu-desktop.sh     ← ROCm env for RDNA 4 dGPU
-│   └── enable-flathub.sh                ← Shared: Flathub remote setup
-├── system/                       ← Static config files → /etc, /usr
-├── docs/
-│   └── systemd-boot-setup.md     ← How to switch from GRUB to systemd-boot
-├── cosign.pub                    ← Public key for image verification
-└── README.md
+```bash
+git clone git@github.com:samwick07/fedora-cosmic-bluebuild.git ~/migration-prep/fedora-cosmic-bluebuild && cd $_
+bluebuild build recipes/recipe-framework.yml                                    # docs/local-build.md
+sudo scripts/make-target-env.sh /dev/<disk> > scripts/targets/<disk>.env && $EDITOR scripts/targets/<disk>.env
+sudo scripts/install-atomic.sh scripts/targets/<disk>.env                       # reboot into it
+sudo post-install-setup.sh                                                      # restores ~ and everything else from the DAS
+post-install-setup.sh --check
 ```
 
-## Architecture
+Everything needed is in this repo (system), `github.com/samwick07/dotfiles`
+(user config, via chezmoi), the DAS (restic repo `frmwrk-restic-repo`, LUKS
+UUID `xxxxxxxx-…`), and two secrets you must hold outside all of them: the
+restic passphrase and `cosign.key`. Full runbook: **`docs/migration-guide.md`**;
+the model behind it: **`docs/clean-room.md`**.
+
+## Repository map
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  GitHub Repo (single repo, two recipes)             │
-│                                                     │
-│  common-modules.yml ──┐                             │
-│                       ├──> recipe-framework.yml     │
-│                       │              │              │
-│                       │              ▼              │
-│                       │   ghcr.io/.../framework     │
-│                       │              │              │
-│                       └──> recipe-desktop.yml       │
-│                             │         │              │
-│                             │         ▼              │
-│                             │   ghcr.io/.../desktop  │
-│                             │                       │
-│  GitHub Actions builds both in parallel             │
-│  (matrix strategy in build.yml)                     │
-└─────────────────────────────────────────────────────┘
-         │                          │
-         ▼                          ▼
-   Framework 13                Desktop
-   rebase to framework         rebase to desktop
-   image                       image
+recipes/
+  common-modules.yml        packages, services, flatpaks, scripts shipped to /usr/bin — shared
+  recipe-framework.yml      + fprintd/iio-sensor-proxy, ROCm env, hibernation drop-ins + SELinux
+  recipe-desktop.yml        + IOMMU kargs, ROCm env, enable-vfio.sh
+files/
+  etc/                      static config -> /etc, incl. fedora-cosmic-atomic/restore-allowlist.txt
+  scripts/                  build-time scripts (configure-*.sh) and host scripts (-> /usr/bin)
+  distrobox/distrobox.ini   `distrobox assemble` manifest: dev, claude, rocm (-> /usr/share/distrobox)
+scripts/
+  make-target-env.sh        read a disk's UUIDs into scripts/targets/<name>.env
+  install-atomic.sh         bootc install to-filesystem onto a pre-made LUKS layout (UUID-driven, guarded)
+  targets/example.env       template; real targets are gitignored
+  reregister-win11vm.sh     recreate the Win11VM domain if its XML is ever lost
+backup/
+  frmwrk_backup_command.sh  restic backup (source of truth for the copy on the DAS)
+  frmwrk-restic-excludes    anchored exclude list
+  restic-backup-sudoers     /etc/sudoers.d/restic-backup
+docs/
+  clean-room.md             the four layers, software lanes, restore allowlist, Syncthing rules
+  migration-guide.md        install → first boot → restore → validate → 4TB → rollback
+  local-build.md            build, smoke-test, sign, push, switch, version bump
+  hibernation-setup.md      what must be true for suspend-then-hibernate, and how to check
+  bootloader.md             GRUB; why systemd-boot was dropped and how to try it later
+.github/workflows/build.yml manual fallback only (workflow_dispatch) — no scheduled or PR builds
+cosign.pub                  image verification key (private key: cosign.key, gitignored)
 ```
 
-## Three-layer separation
+## Host scripts shipped in the image
 
-  Layer 1: OS Image (recipe.yml + GitHub Actions)
-    - System packages, drivers, system configs, default flatpaks
-    - Edit recipe → push → Actions rebuilds → machines pull on next boot
-    - Two images from one repo, sharing common-modules.yml
+| Path on the installed system | Purpose |
+| --- | --- |
+| `/usr/bin/post-install-setup.sh` | Root half of a rebuild: DAS, allowlist restore, hibernation check, CAC system trust, VMs, then `chezmoi init --apply`, Tailscale. `--list`, `--check`, `--step N`. |
+| `/usr/bin/setup-cac.sh` | DoD PKI + OpenSC for pcscd, system trust, NSS/browser profiles. `--system` (root), `--user` (chezmoi), `--check`. |
+| `/usr/share/distrobox/distrobox.ini` | `distrobox assemble create --file …` — `dev` (Fedora, VS Code/Antigravity exported), `claude` (Ubuntu), `rocm`. |
+| `/usr/bin/enable-hibernation.sh` | Verify/repair resume karg, LUKS karg, swap, SELinux module. `--check`. |
+| `/usr/bin/enable-vfio.sh` | Desktop: bind one NVMe controller to vfio-pci **by PCI address** (both T700s share an ID). |
+| `/usr/bin/migrate-docker-to-podman.sh` | One-time: Open WebUI / SearXNG volumes and compose stack from Docker to rootless podman. |
 
-  Layer 2: Dotfiles (YADM or chezmoi)
-    - .bashrc, .config/starship.toml, .config/ghostty/config,
-      .gitconfig, .ssh/config, etc.
-    - Same dotfiles repo on both machines
-    - yadm clone https://github.com/USERNAME/dotfiles.git
+## Four layers (clean-room)
 
-  Layer 3: Data (restic backup)
-    - /home/<user>/Documents, Pictures, Videos, etc.
-    - Per-machine restic repos (or shared repo with different tags)
+1. **OS image** — this repo. Edit → `bluebuild build` → smoke test → push → `sudo bootc upgrade`.
+2. **User layer** — `samwick07/dotfiles` (chezmoi): shell, ghostty, git, `~/.Brewfile`, and the `run_once` scripts that assemble containers, set flatpak permissions, wire CAC and Syncthing. Branches on the image's `VARIANT_ID`.
+3. **Live data** — Syncthing between laptop and desktop (rules in `docs/clean-room.md`).
+4. **Archive** — restic on the DAS, one repo per machine. Restored by allowlist on a rebuild, by hand afterwards.
 
-## Setup sequence (Oct 1 target)
+## Daily operations
 
-### Phase 1: Install Fedora Atomic COSMIC (Oct 1)
-1. Boot Fedora COSMIC Atomic ISO on the 4TB NVMe (Framework 13)
-2. Install with LUKS encryption
-3. Boot into the new system, verify it works
+| Task | Command |
+| --- | --- |
+| Update | `sudo bootc upgrade && systemctl reboot` |
+| Roll back | `sudo bootc rollback && systemctl reboot` (or pick the previous GRUB entry) |
+| Add a GUI app | `default-flatpaks` list in `recipes/common-modules.yml` → build → push (or just `flatpak install` and add it later) |
+| Add a CLI tool | `~/.Brewfile` in dotfiles → `brew bundle --global` |
+| Add a toolchain / IDE | `files/distrobox/distrobox.ini` → build → push → `distrobox assemble create --file /usr/share/distrobox/distrobox.ini --name dev --replace` |
+| Add something that needs the kernel/systemd | `recipes/common-modules.yml` (or one recipe) → build → push |
+| Change a dotfile | `chezmoi edit …` → `chezmoi apply` → commit/push; `chezmoi update` on the other machine |
+| Fedora 44 → 45 | `image-version: 45` in both recipes → build → test on the test drive → push (`docs/local-build.md`) |
+| Backup | `/run/media/<user>/DAS/frmwrk_backup_command.sh` |
+| Health | `post-install-setup.sh --check`, `setup-cac.sh --check`, `sudo enable-hibernation.sh --check` |
 
-### Phase 2: Switch to systemd-boot
-1. Follow docs/systemd-boot-setup.md
-2. Verify bootctl status shows systemd-boot
-3. Verify rpm-ostree status still shows deployments
-4. Verify boot menu shows rollback entries
+## Design decisions
 
-### Phase 3: Set up BlueBuild
-1. Fork https://github.com/blue-build/template
-2. Copy recipes, scripts, system dirs from this directory
-3. Set up cosign signing (secrets in GitHub repo)
-4. Push and wait for Actions to build both images (~15-30 min)
+- **GRUB, not systemd-boot** — the two systemd-boot approaches tried earlier both yield an unbootable disk with a separate ext4 `/boot`; see `docs/bootloader.md`.
+- **bootc install to-filesystem onto pre-made LUKS**, not Anaconda — reproducible, 5 minutes, keeps the LUKS containers and their passphrases; the Anaconda ISO remains a documented alternative.
+- **Nothing under `/usr/local`, `/opt`, `/home`** in the image — those are `/var` on ostree and are not updated after the first install.
+- **Modular libvirt** (`virtqemud.socket` &c.), not `libvirtd.service` — they conflict.
+- **Clean-room, not port-over** — data is restored by allowlist; config is declared in chezmoi; apps are re-chosen per lane (flatpak / Homebrew / distrobox / image). See `docs/clean-room.md`.
+- **Desktop deferred** — `recipe-desktop.yml` builds, but the desktop migrates only after the laptop workflow has held up for months.
+- **Local builds** — GitHub Actions is `workflow_dispatch` only.
+- **VFIO by PCI address** — `vfio-pci.ids=` would capture the boot NVMe on the desktop.
 
-### Phase 4: Rebase to custom image
-1. sudo rpm-ostree rebase ostree-unverified-registry:ghcr.io/USERNAME/fedora-cosmic-framework:latest
-2. sudo systemctl reboot
-3. sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/USERNAME/fedora-cosmic-framework:latest
-4. sudo systemctl reboot
+## Secrets (never in git, never only on the laptop)
 
-### Phase 5: Restore data
-1. Set up YADM: yadm clone https://github.com/USERNAME/dotfiles.git
-2. Restore from restic: restic -r <repo> restore latest --target / --include /home/<user>/
-3. Reinstall flatpak data from .var/app/ (included in restic backup)
-
-### Phase 6: Desktop (when ready)
-1. Install Fedora COSMIC Atomic on desktop 4TB NVMe
-2. Switch to systemd-boot (same steps)
-3. Rebase to desktop image:
-   sudo rpm-ostree rebase ostree-unverified-registry:ghcr.io/USERNAME/fedora-cosmic-desktop:latest
-4. Same YADM and restic restore
-
-## Daily workflow
-
-### Add a package to both machines:
-  Edit common-modules.yml → add package → git push
-  Both images rebuild. Both machines get it on next rpm-ostree upgrade.
-
-### Add a package to one machine only:
-  Edit recipe-framework.yml or recipe-desktop.yml → add package → git push
-  Only that image rebuilds.
-
-### Major Fedora version upgrade (F44 → F45):
-  Edit image-version: 44 → 45 in BOTH recipe files → git push
-  Both images rebuild against Fedora 45 base.
-  Machines get it on next rpm-ostree upgrade + reboot.
-  Rollback: rpm-ostree rollback + reboot.
-
-### New hardware setup:
-  1. Boot Fedora COSMIC Atomic ISO → install
-  2. Switch to systemd-boot
-  3. Rebase to the appropriate image (framework or desktop)
-  4. yadm clone
-  5. restic restore
-  Full environment in under 30 minutes.
-
-## Key decisions documented
-
-  - Bootloader: systemd-boot (BLS-native, Fedora's direction, clean ostree integration)
-  - Image base: quay.io/fedora-ostree-desktops/cosmic-atomic (official upstream)
-  - Version pin: Fedora 44 (upgrade to 45 when ready, weeks after release)
-  - Both machines all-AMD: shared ROCm stack, no NVIDIA driver complexity
-  - Dotfiles: YADM (separate repo, not in the image)
-  - Data: restic (separate from the image)
-  - Development tools: toolbox/distrobox containers (not in the image)
+`cosign.key` (unencrypted — see `docs/local-build.md`), the restic passphrase /
+`~/.restic/frmwrk-repo.pass`, the LUKS passphrases, and if BitLocker is on in
+the VM, its recovery key.

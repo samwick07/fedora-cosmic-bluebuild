@@ -1,20 +1,24 @@
+# Cosign private key — NEVER commit this. Keep a copy off the laptop (see docs/local-build.md).
 cosign.key
+cosign.key.encrypted-old
+cosign.pub.encrypted-old
 cosign.private
+
+# Per-machine install targets (UUIDs of the disk being installed to)
+scripts/targets/*.env
+!scripts/targets/example.env
+
+# BlueBuild local build artefacts
 /Containerfile
+/.bluebuild-scripts_*
+*.tar
+*.tar.gz
 *.iso
 *.iso-CHECKSUM
-# Cosign private key — NEVER commit this
-cosign.key
 
-# Public key is fine to commit (used for verification)
-# cosign.pub
-
-# OS-generated
+# OS / editor
 .DS_Store
 Thumbs.db
-
-# Editor
 *.swp
 *.swo
 *~
-/.bluebuild-scripts_*

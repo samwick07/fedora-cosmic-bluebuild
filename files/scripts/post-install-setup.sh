@@ -1,42 +1,40 @@
 #!/usr/bin/env bash
 #
-# post-install-setup.sh — One-shot system configuration for Fedora Cosmic Atomic
+# post-install-setup.sh — root half of bringing a Fedora Cosmic Atomic machine back.
 #
-# Run this AFTER the final signed rebase + reboot. It handles everything that
-# can't be baked into the image because it depends on per-installation state
-# (drive UUIDs, restored data, browser profiles).
+# Clean-room model:
+#   image   (this repo)      -> system            : already done by bootc install
+#   restic  (DAS)            -> DATA, by allowlist : this script, step 2
+#   chezmoi (dotfiles repo)  -> user config + brew + distrobox + flatpak overrides : step 6
+# Nothing else from the old ~ is restored. Pull anything you miss later with
+#   sudo restic restore latest --target / --include /home/<user>/<path>
 #
-# This script is idempotent — safe to re-run. It skips steps already done.
-# As you adapt to COSMIC DE and the atomic workflow, edit this script and
-# commit changes to git. Each reinstall picks up your latest preferences.
+# Shipped in the image at /usr/bin/post-install-setup.sh. Idempotent; completed
+# steps are recorded in /var/lib/post-install-setup/.
 #
 # USAGE:
 #   sudo post-install-setup.sh              # run all steps
-#   sudo post-install-setup.sh --step N     # run only step N (1-8)
-#   sudo post-install-setup.sh --list       # list steps
-#   sudo post-install-setup.sh --check      # verify status of all steps
+#   sudo post-install-setup.sh --step N     # run only step N
+#   post-install-setup.sh --list | --check
 #
 # PREREQUISITES:
-#   - Booted into the signed custom image (rpm-ostree status shows signed)
-#   - Network connected
-#   - DAS physically connected (USB/SATA)
+#   - Booted into the custom image, logged in as <user>, network up
+#   - DAS attached (unlocked or not — step 1 handles it)
+#   - You know the restic repository passphrase (the password file is inside
+#     the backup, so the first restore prompts for it)
 #
 set -euo pipefail
 
 # ─── Constants ────────────────────────────────────────────────────────
-DAS_UUID="00000000-0000-0000-0000-000000000000"
-DAS_MOUNT="/run/media/<user>/DAS"
+TARGET_USER="<user>"
+USER_HOME="/home/${TARGET_USER}"          # never $HOME: under sudo that is /root
+DAS_LUKS_UUID="00000000-0000-0000-0000-000000000000"
+DAS_MOUNT="/run/media/${TARGET_USER}/DAS"
 RESTIC_REPO="${DAS_MOUNT}/frmwrk-restic-repo"
-RESTIC_PASSFILE="${HOME}/.restic/frmwrk-repo.pass"
-HERMES_BACKUP="${DAS_MOUNT}/hermes-backup"
-
-# Must be root for most steps
-if [[ "${1:-}" != "--list" && "${1:-}" != "--check" ]]; then
-    if [[ $EUID -ne 0 ]]; then
-        echo "ERROR: Run with sudo"
-        exit 1
-    fi
-fi
+RESTIC_PASSFILE="${USER_HOME}/.restic/frmwrk-repo.pass"
+ALLOWLIST="${ALLOWLIST:-/etc/fedora-cosmic-atomic/restore-allowlist.txt}"
+DOTFILES_REPO="${DOTFILES_REPO:-git@github.com:samwick07/dotfiles.git}"
+STATE_DIR="/var/lib/post-install-setup"
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 log()    { echo -e "\n\033[1;34m=== $* ===\033[0m"; }
@@ -45,460 +43,254 @@ skip()   { echo -e "  \033[0;33m→\033[0m $* (already done, skipping)"; }
 warn()   { echo -e "  \033[0;33m!\033[0m $*"; }
 fail()   { echo -e "  \033[0;31m✗\033[0m $*"; }
 
+uid() { id -u "${TARGET_USER}"; }
 run_as_user() {
-    sudo -u <user> HOME=/home/<user> "$@"
+    sudo -u "${TARGET_USER}" HOME="${USER_HOME}" \
+        XDG_RUNTIME_DIR="/run/user/$(uid)" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(uid)/bus" "$@"
 }
+restic_root() { RESTIC_REPOSITORY="${RESTIC_REPO}" RESTIC_PASSWORD_FILE="${RESTIC_PASSFILE}" restic "$@"; }
+step_done()      { [[ -f "${STATE_DIR}/${1}.done" ]]; }
+mark_step_done() { mkdir -p "${STATE_DIR}"; touch "${STATE_DIR}/${1}.done"; }
 
-step_done() {
-    # Check if a step marker file exists
-    [[ -f "/var/lib/post-install-setup/${1}.done" ]]
-}
-
-mark_step_done() {
-    mkdir -p /var/lib/post-install-setup
-    touch "/var/lib/post-install-setup/${1}.done"
-}
-
-# ─── Step list ────────────────────────────────────────────────────────
 STEPS=(
-    "Mount DAS and unlock restic repo"
-    "Restore data from restic backup"
-    "Enable hibernation (swap UUID + kernel args)"
-    "Configure CAC / smart card reader with DoD PKI"
-    "Create distrobox containers"
-    "Restore libvirt VMs"
-    "Install flatpaks and flatpak overrides"
-    "Restore Hermes config"
+    "Mount DAS"
+    "Restore DATA from restic by allowlist (+ NetworkManager, restic sudoers)"
+    "Verify hibernation (resume= karg, swap active, SELinux module)"
+    "CAC: pcscd + DoD roots into system trust"
+    "libvirt: restore Win11VM (config, disk, NVRAM, TPM state)"
+    "Bootstrap user layer: chezmoi init --apply (dotfiles, brew, distrobox, flatpak overrides, syncthing)"
+    "Tailscale: bring the node up"
 )
 
 list_steps() {
     echo "Post-install setup steps:"
     for i in "${!STEPS[@]}"; do
         n=$((i + 1))
-        if step_done "step${n}"; then
-            echo "  ${n}. [x] ${STEPS[$i]}"
-        else
-            echo "  ${n}. [ ] ${STEPS[$i]}"
-        fi
+        if step_done "step${n}"; then echo "  ${n}. [x] ${STEPS[$i]}"; else echo "  ${n}. [ ] ${STEPS[$i]}"; fi
     done
 }
 
 check_status() {
-    list_steps
-    echo ""
-
-    # DAS
-    if mountpoint -q "${DAS_MOUNT}"; then
-        ok "DAS mounted at ${DAS_MOUNT}"
-    else
-        fail "DAS not mounted"
-    fi
-
-    # Restic
-    if [[ -f "${RESTIC_PASSFILE}" ]]; then
-        ok "Restic password file present"
-    else
-        fail "Restic password file missing at ${RESTIC_PASSFILE}"
-    fi
-
-    # Hibernation
-    if rpm-ostree kargs 2>/dev/null | grep -q "resume="; then
-        ok "Hibernation kernel args set"
-    else
-        fail "Hibernation not configured (no resume= karg)"
-    fi
-
-    # CAC
-    if systemctl is-active pcscd.socket >/dev/null 2>&1; then
-        ok "pcscd.socket active"
-    else
-        fail "pcscd.socket not active"
-    fi
-
-    # Distrobox
-    local_count=$(run_as_user distrobox-list 2>/dev/null | grep -c . || true)
-    if [[ "${local_count}" -gt 0 ]]; then
-        ok "Distrobox containers: ${local_count}"
-    else
-        fail "No distrobox containers"
-    fi
-
-    # libvirt
-    if systemctl is-active libvirtd >/dev/null 2>&1; then
-        ok "libvirtd active"
-        if virsh list --all 2>/dev/null | grep -q "Win11VM"; then
-            ok "Win11VM registered"
-        else
-            warn "Win11VM not registered"
-        fi
-    else
-        warn "libvirtd not running"
-    fi
-
-    # Flatpaks
-    local_count=$(run_as_user flatpak list --columns=application 2>/dev/null | wc -l || true)
-    if [[ "${local_count}" -gt 0 ]]; then
-        ok "Flatpaks installed: ${local_count}"
-    else
-        warn "No flatpaks installed"
-    fi
-
-    # Hermes
-    if [[ -d "${HOME}/.hermes" && -f "${HOME}/.hermes/config.yaml" ]]; then
-        ok "Hermes config present"
-    else
-        warn "Hermes config not restored"
-    fi
+    list_steps; echo ""
+    mountpoint -q "${DAS_MOUNT}" && ok "DAS mounted" || fail "DAS not mounted"
+    [[ -f "${RESTIC_PASSFILE}" ]] && ok "restic password file present" || fail "restic password file missing"
+    [[ -d "${USER_HOME}/Documents" ]] && ok "Documents restored" || fail "Documents missing"
+    grep -q 'resume=' /proc/cmdline && ok "resume= on cmdline" || fail "no resume= karg"
+    swapon --show=NAME --noheadings | grep -qv zram && ok "swap partition active" || fail "no non-zram swap"
+    systemctl is-active -q pcscd.socket && ok "pcscd.socket active" || fail "pcscd.socket inactive"
+    [[ -d "${USER_HOME}/.local/share/chezmoi/.git" ]] && ok "chezmoi source present" || fail "chezmoi not initialised"
+    [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]] && ok "Homebrew installed" || warn "Homebrew not installed yet"
+    local n; n=$(run_as_user distrobox list --no-color 2>/dev/null | tail -n +2 | grep -c . || true)
+    [[ "${n}" -gt 0 ]] && ok "distrobox containers: ${n}" || warn "no distrobox containers yet"
+    run_as_user systemctl --user is-active -q syncthing.service && ok "syncthing (user) running" || warn "syncthing (user) not running"
+    systemctl is-active -q virtqemud.socket && ok "virtqemud.socket active" || warn "virtqemud.socket inactive"
+    virsh -c qemu:///system list --all 2>/dev/null | grep -q Win11VM && ok "Win11VM registered" || warn "Win11VM not registered"
+    tailscale status >/dev/null 2>&1 && ok "tailscale up" || warn "tailscale not connected"
+    n=$(flatpak list --system --columns=application 2>/dev/null | wc -l || true)
+    [[ "${n}" -gt 0 ]] && ok "system flatpaks: ${n}" || warn "system flatpaks not installed yet (systemctl status system-flatpak-setup)"
 }
 
-# ─── Parse args ───────────────────────────────────────────────────────
 RUN_STEP=""
-if [[ "${1:-}" == "--list" ]]; then
-    list_steps
-    exit 0
-elif [[ "${1:-}" == "--check" ]]; then
-    check_status
-    exit 0
-elif [[ "${1:-}" == "--step" ]]; then
-    RUN_STEP="${2:?--step requires a number}"
-fi
+case "${1:-}" in
+    --list)  list_steps; exit 0 ;;
+    --check) check_status; exit 0 ;;
+    --step)  RUN_STEP="${2:?--step requires a number}" ;;
+    "")      ;;
+    *)       echo "Usage: $0 [--list|--check|--step N]"; exit 1 ;;
+esac
+[[ $EUID -eq 0 ]] || { echo "ERROR: run with sudo"; exit 1; }
+id "${TARGET_USER}" >/dev/null 2>&1 || { echo "ERROR: user ${TARGET_USER} does not exist"; exit 1; }
 
 # ─── Step 1: Mount DAS ───────────────────────────────────────────────
 step1_mount_das() {
     log "Step 1: Mount DAS"
-
     if mountpoint -q "${DAS_MOUNT}"; then
         skip "DAS already mounted"
-        return 0
-    fi
-
-    # Find the DAS device (could be /dev/sda1, /dev/sdb1, etc.)
-    local das_dev
-    das_dev=$(lsblk -o NAME,FSTYPE -n | grep crypto_LUKS | awk '{print "/dev/"$1}' | head -1)
-
-    if [[ -z "${das_dev}" ]]; then
-        fail "No LUKS device found. Is the DAS connected?"
-        exit 1
-    fi
-
-    echo "  Found LUKS device: ${das_dev}"
-
-    # Unlock
-    sudo cryptsetup luksOpen "${das_dev}" "luks-${DAS_UUID}"
-    mkdir -p "${DAS_MOUNT}"
-    sudo mount "/dev/mapper/luks-${DAS_UUID}" "${DAS_MOUNT}"
-
-    if mountpoint -q "${DAS_MOUNT}"; then
-        ok "DAS mounted at ${DAS_MOUNT}"
     else
-        fail "Failed to mount DAS"
-        exit 1
+        local das_part="/dev/disk/by-uuid/${DAS_LUKS_UUID}" dm="/dev/mapper/luks-${DAS_LUKS_UUID}"
+        [[ -e "${das_part}" ]] || { fail "DAS LUKS partition (UUID ${DAS_LUKS_UUID}) not found. Is the DAS connected?"; exit 1; }
+        [[ -e "${dm}" ]] || { echo "  Unlocking DAS (passphrase prompt)..."; cryptsetup open "$(readlink -f "${das_part}")" "luks-${DAS_LUKS_UUID}"; }
+        mkdir -p "${DAS_MOUNT}"; mount "${dm}" "${DAS_MOUNT}"
+        ok "DAS mounted at ${DAS_MOUNT}"
     fi
-
+    [[ -d "${RESTIC_REPO}" ]] || { fail "restic repo not found at ${RESTIC_REPO}"; exit 1; }
     mark_step_done "step1"
 }
 
-# ─── Step 2: Restore from restic ─────────────────────────────────────
-step2_restore_restic() {
-    log "Step 2: Restore data from restic"
+# ─── Step 2: Restore DATA by allowlist ───────────────────────────────
+step2_restore() {
+    log "Step 2: Restore data from restic (allowlist: ${ALLOWLIST})"
+    [[ -f "${ALLOWLIST}" ]] || { fail "allowlist not found at ${ALLOWLIST}"; exit 1; }
 
     if [[ ! -f "${RESTIC_PASSFILE}" ]]; then
-        # The password file is in the backup itself — chicken-and-egg.
-        # Try to restore just the password file first.
-        echo "  Password file not found. Restoring it first..."
-        # This will prompt for the restic repo password interactively
-        echo "  Enter your restic repo password when prompted:"
-        restic -r "${RESTIC_REPO}" restore latest \
-            --target / --include "/home/<user>/.restic/" \
-            -- || {
-            fail "Could not restore password file. Mount DAS and check repo."
-            exit 1
-        }
-        chown <user>:<user> "${RESTIC_PASSFILE}"
-        chmod 600 "${RESTIC_PASSFILE}"
+        echo "  Password file not found. Restoring ~/.restic first (enter the repo passphrase when asked)."
+        RESTIC_REPOSITORY="${RESTIC_REPO}" restic restore latest --target / --include "${USER_HOME}/.restic/" \
+            || { fail "Could not restore the password file."; exit 1; }
+        [[ -f "${RESTIC_PASSFILE}" ]] || { fail "restore ran but ${RESTIC_PASSFILE} is still missing"; exit 1; }
+        chown -R "${TARGET_USER}:${TARGET_USER}" "${USER_HOME}/.restic"; chmod 700 "${USER_HOME}/.restic"; chmod 600 "${RESTIC_PASSFILE}"
     fi
+    restic_root snapshots --latest 1 >/dev/null || { fail "Cannot access restic repo at ${RESTIC_REPO}"; exit 1; }
+    ok "restic repo accessible"
 
-    export RESTIC_REPOSITORY="${RESTIC_REPO}"
-    export RESTIC_PASSWORD_FILE="${RESTIC_PASSFILE}"
-
-    # Verify repo
-    if ! sudo -u <user> \
-        RESTIC_REPOSITORY="${RESTIC_REPO}" \
-        RESTIC_PASSWORD_FILE="${RESTIC_PASSFILE}" \
-        restic snapshots >/dev/null 2>&1; then
-        fail "Cannot access restic repo at ${RESTIC_REPO}"
-        exit 1
-    fi
-    ok "Restic repo accessible"
-
-    # Check what's already restored
-    if [[ -f "${HOME}/.bashrc" && -d "${HOME}/Documents" ]]; then
-        skip "Home directory already restored"
-    else
-        echo "  Restoring home directory..."
-        restic restore latest --target / --include "/home/<user>/"
-        chown -R <user>:<user> /home/<user>/
-        ok "Home directory restored"
-    fi
-
-    # Restore system configs
-    if [[ -d /etc/libvirt/qemu ]]; then
-        skip "Libvirt configs already present"
-    else
-        restic restore latest --target / --include "/etc/libvirt/"
-        ok "Libvirt configs restored"
-    fi
-
-    if [[ -d /etc/NetworkManager/system-connections ]]; then
-        skip "NetworkManager configs already present"
-    else
-        restic restore latest --target / --include "/etc/NetworkManager/"
-        ok "NetworkManager configs restored"
-    fi
-
-    # Restore restic sudoers
-    if [[ ! -f /etc/sudoers.d/restic-backup ]]; then
-        echo "  Installing restic sudoers..."
-        if [[ -f /home/<user>/migration-prep/bluebuild-recipe/scripts/restic-backup-sudoers ]]; then
-            install -m 0440 -o root -g root \
-                /home/<user>/migration-prep/bluebuild-recipe/scripts/restic-backup-sudoers \
-                /etc/sudoers.d/restic-backup
-            visudo -cf
-            ok "Restic sudoers installed"
-        else
-            # Create inline
-            cat > /etc/sudoers.d/restic-backup << 'SUDOERS'
-Cmnd_Alias RESTIC = /usr/bin/restic
-<user> ALL=(root) NOPASSWD: RESTIC
-Defaults!RESTIC env_keep += "RESTIC_REPOSITORY RESTIC_PASSWORD_FILE"
-SUDOERS
-            chmod 0440 /etc/sudoers.d/restic-backup
-            visudo -cf
-            ok "Restic sudoers created inline"
+    # One restore per allowlist entry, in file order (Syncthing identity is last
+    # on purpose: its folders must exist before the daemon ever starts).
+    local path
+    while IFS= read -r path; do
+        path="${path%%#*}"; path="${path// /}"
+        [[ -z "${path}" ]] && continue
+        if [[ -e "${path}" && -n "$(ls -A "${path}" 2>/dev/null)" ]]; then
+            skip "${path}"
+            continue
         fi
+        echo "  restoring ${path} ..."
+        if [[ "${path}" == */.local/state/syncthing ]]; then
+            restic_root restore latest --target / --include "${path}" --exclude "${path}/*.log" --exclude "${path}/index-v2"
+        else
+            restic_root restore latest --target / --include "${path}"
+        fi
+        [[ -e "${path}" ]] && ok "${path}" || warn "${path} not in snapshot — skipped"
+    done < "${ALLOWLIST}"
+    chown -R "${TARGET_USER}:${TARGET_USER}" "${USER_HOME}"
+    restorecon -R "${USER_HOME}" 2>/dev/null || true
+
+    # System config that is data, not image: Wi-Fi/VPN profiles.
+    if [[ -n "$(ls -A /etc/NetworkManager/system-connections 2>/dev/null)" ]]; then
+        skip "NetworkManager connections already present"
     else
-        skip "Restic sudoers already installed"
+        restic_root restore latest --target / --include "/etc/NetworkManager/" && {
+            chmod 600 /etc/NetworkManager/system-connections/* 2>/dev/null || true
+            systemctl reload NetworkManager || true
+            ok "NetworkManager connections restored"; }
     fi
 
+    if [[ -f /etc/sudoers.d/restic-backup ]]; then
+        skip "restic sudoers already installed"
+    else
+        cat > /etc/sudoers.d/restic-backup <<'SUDOERS'
+# /etc/sudoers.d/restic-backup — passwordless restic for the backup script.
+Defaults:<user> env_keep += "RESTIC_REPOSITORY RESTIC_PASSWORD_FILE"
+<user> ALL=(root) NOPASSWD: /usr/bin/restic
+SUDOERS
+        chmod 0440 /etc/sudoers.d/restic-backup; visudo -cf /etc/sudoers.d/restic-backup
+        ok "restic sudoers installed"
+    fi
     mark_step_done "step2"
 }
 
-# ─── Step 3: Enable hibernation ──────────────────────────────────────
+# ─── Step 3: Hibernation ─────────────────────────────────────────────
 step3_hibernation() {
-    log "Step 3: Enable hibernation"
-
-    if rpm-ostree kargs 2>/dev/null | grep -q "resume="; then
-        skip "Hibernation kargs already set"
+    log "Step 3: Hibernation"
+    if grep -q 'resume=' /proc/cmdline && swapon --show=NAME --noheadings | grep -qv zram; then
+        /usr/bin/enable-hibernation.sh --check || warn "see above"
     else
-        echo "  Running enable-hibernation.sh..."
-        /usr/local/bin/enable-hibernation.sh
-        ok "Hibernation configured — REBOOT REQUIRED before testing"
+        /usr/bin/enable-hibernation.sh || true
+        warn "REBOOT before testing hibernation"
     fi
-
     mark_step_done "step3"
 }
 
-# ─── Step 4: CAC / smart card ────────────────────────────────────────
+# ─── Step 4: CAC system half ─────────────────────────────────────────
 step4_cac() {
-    log "Step 4: Configure CAC / smart card reader"
-
-    if [[ ! -f /usr/local/bin/setup-cac.sh ]]; then
-        fail "setup-cac.sh not found in image. Are you on the custom image?"
-        return 1
-    fi
-
-    # Run as user (script uses sudo internally for system trust)
-    run_as_user /usr/local/bin/setup-cac.sh
-
-    # Apply flatpak pcsc overrides
-    for app_id in org.mozilla.firefox io.github.zen_browser.zen; do
-        run_as_user flatpak override --user --socket=pcsc "${app_id}" 2>/dev/null && \
-            ok "Flatpak ${app_id}: pcsc socket granted" || \
-            warn "Flatpak ${app_id}: not installed yet (override will apply on install)"
-    done
-
+    log "Step 4: CAC — pcscd + DoD roots (system trust)"
+    [[ -d "${USER_HOME}/Documents/<private>" ]] || { fail "DoD cert bundle not restored yet (step 2)"; return 1; }
+    SUDO_USER="${TARGET_USER}" /usr/bin/setup-cac.sh --system
     mark_step_done "step4"
 }
 
-# ─── Step 5: Distrobox containers ────────────────────────────────────
-step5_distrobox() {
-    log "Step 5: Create distrobox containers"
+# ─── Step 5: libvirt / Win11VM ───────────────────────────────────────
+step5_vms() {
+    log "Step 5: libvirt — Win11VM"
+    systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.socket virtnodedevd.socket virtsecretd.socket virtinterfaced.socket
+    id -nG "${TARGET_USER}" | grep -qw libvirt || { usermod -aG libvirt "${TARGET_USER}"; ok "added ${TARGET_USER} to libvirt (re-login)"; }
 
-    if [[ ! -f /usr/local/bin/distrobox-setup.sh ]]; then
-        fail "distrobox-setup.sh not found in image"
-        return 1
-    fi
+    [[ -n "$(ls -A /etc/libvirt/qemu 2>/dev/null)" ]] || { restic_root restore latest --target / --include "/etc/libvirt/"; ok "/etc/libvirt restored"; }
+    if [[ ! -f /var/lib/libvirt/vm-images/Win11VM.qcow2 ]]; then
+        echo "  Restoring Win11VM.qcow2 (~512 GB, slow)..."
+        restic_root restore latest --target / --include "/var/lib/libvirt/vm-images/"; ok "VM disk restored"
+    else skip "Win11VM.qcow2 present"; fi
+    restic_root restore latest --target / --include "/var/lib/libvirt/qemu/nvram/" 2>/dev/null && ok "OVMF NVRAM restored" || warn "no NVRAM in backup (fresh UEFI vars)"
+    restic_root restore latest --target / --include "/var/lib/libvirt/swtpm/"     2>/dev/null && ok "swtpm state restored" || warn "no swtpm state in backup (BitLocker may ask for its recovery key)"
+    restorecon -R /var/lib/libvirt 2>/dev/null || true
 
-    run_as_user /usr/local/bin/distrobox-setup.sh
-
-    echo ""
-    run_as_user distrobox-list
-
+    local V="virsh -c qemu:///system"
+    $V pool-info vm-images >/dev/null 2>&1 || { $V pool-define-as vm-images dir --target /var/lib/libvirt/vm-images; $V pool-start vm-images; $V pool-autostart vm-images; ok "vm-images pool"; }
+    $V net-start default 2>/dev/null || true; $V net-autostart default 2>/dev/null || true
+    if $V list --all 2>/dev/null | grep -q Win11VM; then skip "Win11VM registered"
+    elif [[ -f /etc/libvirt/qemu/Win11VM.xml ]]; then $V define /etc/libvirt/qemu/Win11VM.xml; ok "Win11VM defined"
+    else fail "Win11VM.xml missing — run scripts/reregister-win11vm.sh from the repo"; fi
     mark_step_done "step5"
 }
 
-# ─── Step 6: Restore libvirt VMs ─────────────────────────────────────
-step6_vms() {
-    log "Step 6: Restore libvirt VMs"
-
-    systemctl enable --now libvirtd
-
-    # Add user to libvirt group if not already
-    if ! id <user> | grep -q libvirt; then
-        usermod -aG libvirt <user>
-        ok "Added <user> to libvirt group (re-login to take effect)"
-    fi
-
-    # Restore VM images if not present
-    if [[ ! -f /var/lib/libvirt/vm-images/Win11VM.qcow2 ]]; then
-        echo "  Restoring Win11VM.qcow2 from restic (this may take a while)..."
-        export RESTIC_REPOSITORY="${RESTIC_REPO}"
-        export RESTIC_PASSWORD_FILE="${RESTIC_PASSFILE}"
-        restic restore latest --target / --include "/var/lib/libvirt/vm-images/"
-        ok "VM images restored"
+# ─── Step 6: user layer via chezmoi ──────────────────────────────────
+step6_chezmoi() {
+    log "Step 6: chezmoi init --apply ${DOTFILES_REPO}"
+    if [[ -d "${USER_HOME}/.local/share/chezmoi/.git" ]]; then
+        skip "chezmoi already initialised — running 'chezmoi apply' instead"
+        run_as_user chezmoi apply
     else
-        skip "Win11VM.qcow2 already present"
-    fi
-
-    # Define the VM
-    if virsh list --all 2>/dev/null | grep -q "Win11VM"; then
-        skip "Win11VM already registered"
-    else
-        if [[ -f /etc/libvirt/qemu/Win11VM.xml ]]; then
-            virsh define /etc/libvirt/qemu/Win11VM.xml
-            ok "Win11VM defined"
-        else
-            fail "Win11VM.xml not found at /etc/libvirt/qemu/Win11VM.xml"
-            warn "Restore /etc/libvirt/ from restic first"
+        # SSH clone needs the restored key and GitHub's host key.
+        if [[ "${DOTFILES_REPO}" == git@github.com:* ]]; then
+            [[ -f "${USER_HOME}/.ssh/id_ed25519" || -f "${USER_HOME}/.ssh/id_rsa" ]] || warn "no SSH key in ${USER_HOME}/.ssh — clone will fail; set DOTFILES_REPO=https://... or restore .ssh"
+            run_as_user mkdir -p "${USER_HOME}/.ssh"
+            run_as_user bash -c "ssh-keygen -F github.com >/dev/null 2>&1 || ssh-keyscan -t ed25519 github.com >> ${USER_HOME}/.ssh/known_hosts 2>/dev/null"
         fi
+        # chezmoi's run_once_ scripts then install Homebrew + Brewfile, assemble
+        # the distrobox containers, apply flatpak overrides, run setup-cac --user
+        # and enable the Syncthing user service. This is the long step.
+        run_as_user chezmoi init --apply "${DOTFILES_REPO}"
     fi
-
+    ok "user layer applied"
     mark_step_done "step6"
 }
 
-# ─── Step 7: Flatpaks ────────────────────────────────────────────────
-step7_flatpaks() {
-    log "Step 7: Install flatpaks and overrides"
-
-    # The image installs system flatpaks on first boot, but user-scope
-    # flatpaks and overrides may need manual install
-    run_as_user flatpak remote-add --if-not-exists flathub \
-        https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null || true
-
-    # Ensure the default flatpaks from the image are installed
-    local flatpaks=(
-        org.mozilla.firefox
-        io.github.zen_browser.zen
-        com.github.tchx84.Flatseal
-        it.mijorus.gearlever
-        org.videolan.VLC
-        org.darktable.Darktable
-        org.inkscape.Inkscape
-        org.gimp.GIMP
-        com.calibre_ebook.calibre
-        org.zotero.Zotero
-        com.visualstudio.code
-    )
-
-    for fp in "${flatpaks[@]}"; do
-        if run_as_user flatpak list --columns=application 2>/dev/null | grep -q "^${fp}$"; then
-            skip "${fp}"
-        else
-            run_as_user flatpak install -y flathub "${fp}" 2>/dev/null && \
-                ok "Installed: ${fp}" || \
-                warn "Failed to install: ${fp}"
+# ─── Step 7: Tailscale ───────────────────────────────────────────────
+step7_tailscale() {
+    log "Step 7: Tailscale"
+    systemctl enable --now tailscaled
+    if tailscale status >/dev/null 2>&1; then
+        skip "tailscale already connected"
+    else
+        echo "  Option A (same node identity as before): restore /var/lib/tailscale from the backup."
+        echo "  Option B (new node): tailscale up — approve it in the admin console."
+        read -rp "  Restore old identity? (y/N) " r
+        if [[ "${r,,}" == y ]]; then
+            systemctl stop tailscaled
+            restic_root restore latest --target / --include "/var/lib/tailscale/" && ok "tailscale state restored"
+            systemctl start tailscaled
         fi
-    done
-
-    # Apply pcsc socket override for all flatpak browsers
-    for app_id in org.mozilla.firefox io.github.zen_browser.zen; do
-        run_as_user flatpak override --user --socket=pcsc "${app_id}" 2>/dev/null && \
-            ok "pcsc override: ${app_id}" || true
-    done
-
+        tailscale up || warn "tailscale up needs an interactive login — run it yourself"
+    fi
     mark_step_done "step7"
 }
 
-# ─── Step 8: Restore Hermes ──────────────────────────────────────────
-step8_hermes() {
-    log "Step 8: Restore Hermes config"
-
-    if [[ ! -d "${HERMES_BACKUP}" ]]; then
-        fail "Hermes backup not found at ${HERMES_BACKUP}"
-        return 1
-    fi
-
-    if [[ -f "${HOME}/.hermes/config.yaml" ]]; then
-        skip "Hermes config already present"
-    else
-        mkdir -p "${HOME}/.hermes"
-        rsync -a "${HERMES_BACKUP}/" "${HOME}/.hermes/"
-        chown -R <user>:<user> "${HOME}/.hermes"
-        ok "Hermes config restored"
-    fi
-
-    mark_step_done "step8"
-}
-
-# ─── Main ────────────────────────────────────────────────────────────
 main() {
     echo "============================================"
     echo "  Fedora Cosmic Atomic — Post-Install Setup"
     echo "============================================"
-    echo ""
-
-    # Verify we're on the right image
-    if ! rpm-ostree status 2>/dev/null | grep -q "ostree-image-signed\|ostree-unverified-registry"; then
-        warn "Not running a custom ostree image. Some baked-in scripts may be missing."
-        echo "  Continue anyway? (y/N)"
-        read -r response
-        [[ "${response,,}" == "y" ]] || exit 0
+    if ! bootc status 2>/dev/null | grep -qE 'fedora-cosmic-(framework|desktop)'; then
+        warn "bootc status does not show the custom image. Some shipped scripts may be missing."
+        read -rp "  Continue anyway? (y/N) " response; [[ "${response,,}" == "y" ]] || exit 0
     fi
-
-    echo ""
-    echo "Steps:"
-    list_steps
-    echo ""
-
+    echo ""; list_steps; echo ""
     if [[ -n "${RUN_STEP}" ]]; then
-        echo "Running only step ${RUN_STEP}"
         case "${RUN_STEP}" in
-            1) step1_mount_das ;;
-            2) step2_restore_restic ;;
-            3) step3_hibernation ;;
-            4) step4_cac ;;
-            5) step5_distrobox ;;
-            6) step6_vms ;;
-            7) step7_flatpaks ;;
-            8) step8_hermes ;;
+            1) step1_mount_das ;; 2) step2_restore ;; 3) step3_hibernation ;; 4) step4_cac ;;
+            5) step5_vms ;; 6) step6_chezmoi ;; 7) step7_tailscale ;;
             *) echo "Invalid step: ${RUN_STEP}"; exit 1 ;;
         esac
     else
-        step1_mount_das
-        step2_restore_restic
-        step3_hibernation
-        step4_cac
-        step5_distrobox
-        step6_vms
-        step7_flatpaks
-        step8_hermes
+        step1_mount_das; step2_restore; step3_hibernation; step4_cac; step5_vms; step6_chezmoi; step7_tailscale
     fi
-
-    echo ""
     log "Post-install setup complete"
-    echo ""
-    echo "Next steps:"
-    echo "  1. REBOOT (for hibernation kargs to take effect)"
-    echo "  2. Test hibernation: systemctl hibernate"
-    echo "  3. Restart browsers for CAC PKCS#11 module"
-    echo "  4. Run --check to verify: sudo post-install-setup.sh --check"
-    echo ""
-    echo "To re-run a single step:"
-    echo "  sudo post-install-setup.sh --step N"
-    echo ""
-    echo "To iterate on this script:"
-    echo "  Edit ~/migration-prep/bluebuild-recipe/files/scripts/post-install-setup.sh"
-    echo "  Commit and push — next reinstall picks up your changes."
+    cat <<EOF
+Next:
+  1. Log out and back in (libvirt group, brew on PATH, restored dotfiles)
+  2. post-install-setup.sh --check
+  3. Syncthing: open http://127.0.0.1:8384 — the desktop should reconnect within a minute
+  4. Test hibernation:  systemctl hibernate
+  5. Anything you miss from the old machine:
+       sudo restic -r ${RESTIC_REPO} ls latest /home/<user> | less
+       sudo restic -r ${RESTIC_REPO} restore latest --target / --include /home/<user>/<path>
+EOF
 }
-
 main "$@"

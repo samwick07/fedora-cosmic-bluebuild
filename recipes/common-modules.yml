@@ -4,24 +4,33 @@
 # Shared modules for both Framework 13 and desktop.
 # Both machines are all-AMD (Framework: Ryzen 7040 APU, Desktop: Ryzen 9950X + RX 9070 XT).
 #
-# LAYERING POLICY:
-#   The base image must stay as close to stock cosmic-atomic as possible.
-#   Only layer what cannot be reliably containerized:
-#     - Daemons with kernel/systemd integration (tailscale, libvirt)
-#     - Tools requiring direct hardware access (restic, smartmontools, gdisk)
-#     - Tools that must run in the host shell (starship, ghostty, tmux, topgrade)
-#   Everything else lives in distrobox containers or flatpaks.
+# LAYERING POLICY (clean-room):
+#   The image is the SYSTEM layer only. Layer what needs the host kernel,
+#   systemd, /dev, or must exist before the user layer can bootstrap:
+#     - Daemons: tailscale, syncthing, libvirt, pcscd, NetworkManager plugins
+#     - Hardware/root tools: restic, smartmontools, gdisk, lm_sensors
+#     - Host shell + bootstrap: ghostty, tmux, starship, topgrade, chezmoi, age, distrobox
+#   Everything else:
+#     - GUI apps        -> flatpaks (list below)
+#     - CLI tools       -> Homebrew (~/.Brewfile in the dotfiles repo)
+#     - Dev toolchains  -> distrobox `dev` (Fedora), `claude` (Ubuntu), `rocm`
+#     - User config     -> chezmoi (github.com/samwick07/dotfiles)
+#     - Data            -> Syncthing (live) + restic on the DAS (archive)
+#
+# OSTREE PATH RULES (why every destination below is /usr/bin or /usr/share):
+#   /usr/local -> /var/usrlocal, /opt -> /var/opt, /home -> /var/home.
+#   Anything written under /var during the build is applied ONCE by
+#   `bootc install` and never again on rebase or upgrade. Ship image content
+#   under /usr and /etc only.
 
 modules:
   # ─────────────────────────────────────────────
-  # STATIC CONFIG FILES
+  # STATIC CONFIG FILES  (files/etc/** -> /etc/**)
   # ─────────────────────────────────────────────
-  # Files in files/ get copied into the image root during build.
-  # This also populates the build context so script modules can find scripts/.
   - type: files
     files:
-      - source: .
-        destination: /
+      - source: etc
+        destination: /etc
 
   # ─────────────────────────────────────────────
   # RPM PACKAGES (host image only — cannot be containerized)
@@ -38,139 +47,140 @@ modules:
         - https://pkgs.tailscale.com/stable/fedora/repo.gpg
 
     install:
+      # Weak deps stay off to keep the image small; anything we actually rely on
+      # that would normally arrive as a Recommends is listed explicitly below.
       install-weak-deps: false
       packages:
         # ── Networking (kernel/systemd integration) ──
-        - tailscale               # systemd service, /dev/net/tun, kernel networking
+        - tailscale                    # systemd service, /dev/net/tun
+        - NetworkManager-openvpn       # restored /etc/NetworkManager profiles use these
+        - NetworkManager-openconnect
+        - openvpn
+        - openconnect
 
-        # ── Backup (needs sudoers, root-level access) ──
+        # ── Backup + file sync (daemons / sudoers) ──
         - restic
+        - syncthing                    # user unit syncthing.service, enabled by chezmoi run_once
+
+        # ── User-config bootstrap (must exist before any container does) ──
+        - chezmoi
+        - age
 
         # ── Host shell tools (must run on host, not in container) ──
-        - git                     # full git (base only has git-core), for dotfiles/yadm
-        - starship                # shell prompt, integrates with host shell
-        - ghostty                 # terminal emulator, launches on host
-        - tmux                    # terminal multiplexer, runs on host
-        - topgrade                # system updater, needs rpm-ostree + flatpak on host
+        - git                          # full git (base only has git-core), for dotfiles/yadm
+        - starship
+        - ghostty
+        - tmux
+        - topgrade
 
         # ── Hardware diagnostics (direct /dev access) ──
-        - gdisk                   # partition tool, direct disk access
-        - smartmontools           # SMART diagnostics, /dev/sdX
-        - lm_sensors              # hardware sensors, /sys access
+        - gdisk
+        - smartmontools
+        - lm_sensors
 
         # ── Virtualization (kernel KVM, systemd services) ──
-        - virt-manager            # connects to system libvirt socket
-        - qemu-kvm                # /dev/kvm, kernel module
-        - libvirt                 # systemd service, network bridges
-        - libvirt-daemon-kvm      # KVM management daemon
+        - virt-manager
+        - qemu-kvm
+        - libvirt
+        - libvirt-daemon-kvm
+        - edk2-ovmf                    # UEFI firmware for the Win11 VM (weak dep otherwise)
+        - swtpm                        # TPM 2.0 emulator required by Win11 (weak dep otherwise)
+        - swtpm-tools
 
-        # ── Container runtime (needs podman on host) ──
-        - distrobox               # creates containers that integrate with host
+        # ── Containers (podman is in the base) ──
+        - distrobox                    # containers defined in /usr/share/distrobox/distrobox.ini (distrobox assemble)
 
         # ── CAC/Smart card (DoD PKI) ──
         # opensc, pcsc-lite, pcsc-lite-ccid, p11-kit are in the base image.
-        # nss-tools is needed for certutil/modutil (browser cert management).
-        - nss-tools
+        - nss-tools                    # certutil/modutil for browser cert management
+
+        # ── SELinux tooling ──
+        - checkpolicy                  # checkmodule, so configure-hibernation.sh can compile its policy at build time
+        - policycoreutils-python-utils # audit2allow / semanage on the host
 
         # ── Already in base image (do NOT re-install) ──
         # podman, toolbox, python3, nvme-cli, ntfs-3g, exfatprogs, cifs-utils
-        # linux-firmware, mesa drivers, vulkan-loader, pipewire
+        # linux-firmware, mesa drivers, vulkan-loader, pipewire, bootc, bootupd
         # opensc, pcsc-lite, pcsc-lite-ccid, p11-kit, p11-kit-trust
 
-    remove:
-      packages:
-        - firefox
-        - firefox-langpacks
+  # Firefox comes back as a flatpak. Removing an RPM that is not installed fails
+  # the build, so guard it instead of using the dnf module's `remove:`.
+  - type: script
+    snippets:
+      - "if rpm -q firefox >/dev/null 2>&1; then dnf5 -y remove firefox firefox-langpacks; fi"
 
   # ─────────────────────────────────────────────
   # SYSTEMD SERVICES
   # ─────────────────────────────────────────────
+  # libvirt runs as modular daemons on Fedora. Do NOT enable libvirtd.service —
+  # it conflicts with the virt*d sockets and one of them fails at boot.
   - type: systemd
     system:
       enabled:
         - tailscaled.service
-        - libvirtd.service
         - pcscd.socket
+        - virtqemud.socket
+        - virtnetworkd.socket
+        - virtstoraged.socket
+        - virtnodedevd.socket
+        - virtsecretd.socket
+        - virtinterfaced.socket
 
   # ─────────────────────────────────────────────
   # FLATPAKS (GUI apps — sandboxed, auto-updated)
   # ─────────────────────────────────────────────
+  # The module configures the Flathub remote itself (system and user scope)
+  # and installs the list on first boot via a systemd service.
   - type: default-flatpaks
     configurations:
       - notify: true
         scope: system
         install:
           # ── Browsers ──
-          - org.mozilla.firefox
-          - io.github.zen_browser.zen
+          - com.google.Chrome                 # default browser (mimeapps.list)
+          - org.mozilla.firefox               # CAC-friendly second browser
           # ── System utilities ──
           - com.github.tchx84.Flatseal
-          - it.mijorus.gearlever
-          # ── Media ──
+          - it.mijorus.gearlever              # AppImage manager (Claude Desktop lives in ~/AppImages)
+          # ── Media / creative ──
           - org.videolan.VLC
-          # ── Creative ──
-          - org.darktable.Darktable
-          - org.inkscape.Inkscape
           - org.gimp.GIMP
-          # ── Productivity ──
+          - org.inkscape.Inkscape
+          - org.darktable.Darktable
+          # ── Office / reading ──
+          - org.libreoffice.LibreOffice
           - com.calibre_ebook.calibre
-          - org.zotero.Zotero
-          # ── Development ──
-          - com.visualstudio.code
+          # ── Messaging ──
+          - org.signal.Signal
+          # ── Windows apps + games (replace the wine RPMs and steam RPM) ──
+          - com.usebottles.bottles
+          - com.valvesoftware.Steam
+          # ── Remote access ──
+          - org.remmina.Remmina               # RDP/VNC (replaces freerdp/tigervnc RPMs)
       - scope: user
 
   # ─────────────────────────────────────────────
-  # SHARED BUILD SCRIPTS
+  # HOST SCRIPTS SHIPPED IN THE IMAGE  (files/scripts/* -> /usr/bin/*)
   # ─────────────────────────────────────────────
-  - type: script
-    scripts:
-      - enable-flathub.sh
-
-  # ─────────────────────────────────────────────
-  # CAC / SMART CARD READER SETUP SCRIPT
-  # ─────────────────────────────────────────────
-  # Bakes in the CAC setup script so it survives rebases/reinstalls.
-  # After first boot and cert bundle restore, run: setup-cac.sh
-  # Do NOT bake in the DoD certs themselves — they rotate every ~2 years.
-  # The script reads them from ~/Documents/<private>/DoD PKI/ (restic restore).
-  - type: files
-    files:
-      - source: scripts/setup-cac.sh
-        destination: /usr/local/bin/setup-cac.sh
-
-  # ─────────────────────────────────────────────
-  # POST-INSTALL ORCHESTRATOR
-  # ─────────────────────────────────────────────
-  # Single script to configure the entire system after the final rebase.
-  # Handles: DAS mount, restic restore, hibernation, CAC/PKI, distrobox,
-  # libvirt VMs, flatpaks, Hermes restore. Idempotent — safe to re-run.
-  # Usage: sudo /usr/local/bin/post-install-setup.sh
+  # post-install-setup.sh — root half of a rebuild: DAS, allowlist restore from
+  #                         restic, hibernation check, CAC system trust, VMs,
+  #                         then hands over to `chezmoi init --apply`.
+  # setup-cac.sh          — DoD PKI + OpenSC. --system (root) / --user (chezmoi run_once).
+  # migrate-docker-to-podman.sh — one-time Open WebUI/SearXNG volume move.
+  # distrobox.ini         — `distrobox assemble create --file /usr/share/distrobox/distrobox.ini`
+  #                         (run by chezmoi run_once). Boxes: dev, claude, rocm.
   - type: files
     files:
       - source: scripts/post-install-setup.sh
-        destination: /usr/local/bin/post-install-setup.sh
+        destination: /usr/bin/post-install-setup.sh
+      - source: scripts/setup-cac.sh
+        destination: /usr/bin/setup-cac.sh
+      - source: scripts/migrate-docker-to-podman.sh
+        destination: /usr/bin/migrate-docker-to-podman.sh
+      - source: distrobox/distrobox.ini
+        destination: /usr/share/distrobox/distrobox.ini
 
-  # ─────────────────────────────────────────────
-  # DISTROBOX CONTAINER DEFINITIONS
-  # ─────────────────────────────────────────────
-  # Bakes in the setup script and container .ini definitions so they survive
-  # rebases/reinstalls. After first boot, run: /usr/local/bin/distrobox-setup.sh
-  # The script is idempotent (skips existing containers) and supports --recreate.
-  # Update containers in-place with: distrobox upgrade --all
-  #
-  # Containers:
-  #   fedora-ws   — Fedora Workstation: system CLI tools, dev utilities
-  #   rocm        — AMD ROCm: GPU compute (OpenCL, rocminfo) with device passthrough
-  #   debian      — Debian Trixie: browsing, Signal, Jellyfin, OCR, media
-  #   ClaudeCode  — Ubuntu 24.04: Claude Desktop app + dev tools
-  - type: files
-    files:
-      - source: distrobox/distrobox-setup.sh
-        destination: /usr/local/bin/distrobox-setup.sh
-      - source: distrobox/containers/
-        destination: /usr/local/share/distrobox/
-
-  # ─────────────────────────────────────────────
-  # INITRAMFS (regenerate after all changes)
-  # ─────────────────────────────────────────────
-  - type: initramfs
+  # git does not reliably preserve the executable bit through the build context.
+  - type: script
+    snippets:
+      - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh"

@@ -4,7 +4,7 @@
 #
 # ╔══════════════════════════════════════════════════════════════════════╗
 # ║  ONE-TIME MIGRATION SCRIPT — NOT NEEDED AFTER FIRST RUN              ║
-# ║  This script is NOT baked into the image. Run it manually once       ║
+# ║  Shipped in the image at /usr/bin for convenience. Run it once       ║
 # ║  after restoring your home directory from restic.                    ║
 # ║                                                                      ║
 # ║  Purpose: Replicate Docker containers/volumes under Podman on the    ║
@@ -132,9 +132,9 @@ migrate_volumes() {
         # Get the volume mountpoint
         podman_mp=$(podman volume inspect "${vol}" --format '{{.Mountpoint}}')
 
-        # Copy data
-        sudo cp -a "${docker_path}/." "${podman_mp}/"
-        sudo chown -R $(id -u):$(id -g) "${podman_mp}/"
+        # Copy data INTO the rootless user namespace so ownership maps the way
+        # containers expect (root-in-container == your UID, other UIDs shifted).
+        sudo tar -C "${docker_path}" -cf - . | podman unshare tar -C "${podman_mp}" -xpf -
 
         ok "Migrated: ${vol}"
     done
@@ -281,7 +281,6 @@ main() {
     echo "║  Docker → Podman Migration (ONE-TIME)                        ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
-    echo "  This script is NOT baked into the image."
     echo "  Run it once after restoring data from restic."
     echo "  Delete it after migration is complete."
     echo ""
@@ -318,7 +317,7 @@ main() {
     echo "    podman images                   # images"
     echo ""
     echo "  Manage services:"
-    echo "    cd ~/Services/open-webui"
+    echo "    cd ~/Documents/00_Projects/DockerProjects/Open-WebUI-frmwrk"
     echo "    podman compose ps"
     echo "    podman compose logs -f"
     echo ""

@@ -1,136 +1,77 @@
 #!/usr/bin/env bash
-# enable-vfio.sh
-# Post-install script to configure VFIO PCIe passthrough for the
-# 2TB NVMe drive that hosts the Windows 11 VM on the desktop.
+# enable-vfio.sh — DESKTOP: hand the 2TB NVMe controller to vfio-pci for the
+# Windows 11 VM. Shipped at /usr/bin/enable-vfio.sh.
 #
-# This script must be run ONCE after the first boot of the custom image.
-# It handles the parts that CAN'T be baked into the image:
-#   - Detecting the 2TB NVMe's vendor:device ID
-#   - Setting vfio-pci.ids kernel parameter
-#   - Binding the device to the vfio-pci driver
+# WHY NOT vfio-pci.ids=?  The 4TB and 2TB drives are both Crucial T700s and
+# share one vendor:device ID. An ids= karg binds BOTH controllers to vfio-pci,
+# including the one the OS boots from. We therefore bind by PCI ADDRESS with a
+# driver_override udev rule that is included in the initramfs.
 #
-# USAGE:
-#   sudo /usr/local/bin/enable-vfio.sh
+# Prereqs (in the image): kargs amd_iommu=on iommu=pt (recipe-desktop.yml).
 #
+# Usage: sudo enable-vfio.sh [PCI-ADDRESS]     e.g. sudo enable-vfio.sh 0000:02:00.0
+#        sudo enable-vfio.sh --remove
 set -euo pipefail
+[[ $EUID -eq 0 ]] || { echo "ERROR: run with sudo" >&2; exit 1; }
 
-if [[ $EUID -ne 0 ]]; then
-    echo "ERROR: Run with sudo"
-    exit 1
+RULE=/etc/udev/rules.d/10-vfio-nvme.rules
+MODPROBE=/etc/modprobe.d/vfio-nvme.conf
+
+if [[ "${1:-}" == "--remove" ]]; then
+    rm -f "$RULE" "$MODPROBE"
+    rpm-ostree initramfs --disable 2>/dev/null || true
+    echo "Removed. Reboot to return the controller to the nvme driver."
+    exit 0
 fi
 
-echo "=== VFIO PCIe Passthrough Setup for Desktop ==="
-echo ""
+echo "=== NVMe controllers ==="
+ROOT_SRC=$(findmnt -no SOURCE / | sed 's/\[.*\]//')
+ROOT_DISK=$(lsblk -no PKNAME "$ROOT_SRC" | head -1); ROOT_DISK=${ROOT_DISK:-?}
+for ctrl in /sys/class/nvme/nvme*; do
+    addr=$(basename "$(readlink -f "$ctrl/device")")
+    disks=$(ls "$ctrl" | grep -E '^nvme[0-9]+n[0-9]+$' | tr '\n' ' ')
+    model=$(cat "$ctrl/model" 2>/dev/null | xargs)
+    mark=""; for d in $disks; do [[ "$ROOT_DISK" == "$d"* || "$ROOT_DISK" == "$d" ]] && mark="  <-- OS DISK, do not pass through"; done
+    printf '  %s  %-24s %s%s\n' "$addr" "$model" "$disks" "$mark"
+done
 
-# ─────────────────────────────────────────────
-# STEP 1: Find the 2TB NVMe controller
-# ─────────────────────────────────────────────
-echo "Scanning for NVMe controllers..."
-echo ""
-
-# List all NVMe controllers with their PCI IDs
-NVME_DEVICES=$(lspci -nn | grep -i "non-volatile\|nvme" || true)
-
-if [[ -z "$NVME_DEVICES" ]]; then
-    echo "ERROR: No NVMe controllers found."
-    exit 1
+ADDR="${1:-}"
+if [[ -z "$ADDR" ]]; then
+    read -rp "PCI address of the controller to pass through (e.g. 0000:02:00.0): " ADDR
 fi
+[[ "$ADDR" =~ ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9]$ ]] || { echo "ERROR: bad address format, want 0000:02:00.0" >&2; exit 1; }
+[[ -e "/sys/bus/pci/devices/$ADDR" ]] || { echo "ERROR: no device at $ADDR" >&2; exit 1; }
 
-echo "Found NVMe controllers:"
-echo "$NVME_DEVICES"
-echo ""
-
-# Extract vendor:device IDs for all NVMe controllers
-# Format: "02:00.0 Non-Volatile memory controller [0108]: Crucial ... [15b3:1234]"
-# We want the [xxxx:xxxx] part
-VFIO_IDS=""
-while IFS= read -r line; do
-    pci_addr=$(echo "$line" | awk '{print $1}')
-    # Extract the [vendor:device] ID
-    ids=$(echo "$line" | grep -oP '\[\K[a-f0-9]{4}:[a-f0-9]{4}' | tail -1)
-    # Get the device description
-    desc=$(echo "$line" | sed "s/^$pci_addr //; s/\[.*$//")
-    echo "  $pci_addr: $desc → $ids"
-done <<< "$NVME_DEVICES"
-
-echo ""
-echo "Which NVMe controller should be passed through to the Windows VM?"
-echo "(This is typically the 2TB drive, usually the second NVMe slot)"
-echo ""
-
-# Auto-detect: the 2TB NVMe is usually the second controller
-# On the ROG STRIX X870-I, nvme0n1 is the 4TB (slot 0) and nvme1n1 is the 2TB (slot 1)
-# The PCI address of nvme1n1 can be found via sysfs
-SECOND_NVME_PCI=$(cat /sys/class/nvme/nvme1n1/device/address 2>/dev/null || true)
-
-if [[ -n "$SECOND_NVME_PCI" ]]; then
-    echo "Auto-detected 2TB NVMe at PCI address: $SECOND_NVME_PCI"
-    # Normalize the address format (sysfs uses 0000:02:00.0, lspci uses 02:00.0)
-    SHORT_ADDR=$(echo "$SECOND_NVME_PCI" | sed 's/^0000://')
-    VFIO_LINE=$(lspci -nn | grep "^${SHORT_ADDR}")
-    VFIO_IDS=$(echo "$VFIO_LINE" | grep -oP '\[\K[a-f0-9]{4}:[a-f0-9]{4}' | tail -1)
-    echo "Controller: $VFIO_LINE"
-    echo "Vendor:Device ID: $VFIO_IDS"
-else
-    echo "Could not auto-detect. Enter the PCI address (e.g. 02:00.0):"
-    read -r pci_addr
-    VFIO_LINE=$(lspci -nn | grep "^${pci_addr}")
-    VFIO_IDS=$(echo "$VFIO_LINE" | grep -oP '\[\K[a-f0-9]{4}:[a-f0-9]{4}' | tail -1)
-fi
-
-if [[ -z "$VFIO_IDS" ]]; then
-    echo "ERROR: Could not determine vendor:device ID."
-    exit 1
-fi
-
-echo ""
-echo "Will set vfio-pci.ids=$VFIO_IDS"
-echo ""
-
-# ─────────────────────────────────────────────
-# STEP 2: Set the kernel parameter
-# ─────────────────────────────────────────────
-echo "=== Setting kernel parameter ==="
-
-# Remove any existing vfio-pci.ids
-rpm-ostree kargs --delete=vfio-pci.ids 2>/dev/null || true
-
-# Add the new one
-rpm-ostree kargs --append-if-missing="vfio-pci.ids=$VFIO_IDS"
-
-echo "Kernel arguments updated."
-
-# ─────────────────────────────────────────────
-# STEP 3: Ensure vfio-pci driver loads at boot
-# ─────────────────────────────────────────────
-# On Atomic, we can't easily modify initramfs driver loading order.
-# But we can ensure the vfio modules are available.
-# The amd_iommu=on and iommu=pt kargs are already in the image (via kargs module).
-
-echo ""
-echo "=== Verifying IOMMU groups ==="
-echo "IOMMU groups for NVMe devices:"
-for dev in /sys/class/nvme/*/device/iommu_group; do
-    if [[ -L "$dev" ]]; then
-        nvme=$(echo "$dev" | cut -d/ -f4)
-        group=$(basename "$(readlink -f "$dev")" 2>/dev/null || echo "unknown")
-        echo "  $nvme → IOMMU group $group"
+# Refuse the controller that holds /
+for ctrl in /sys/class/nvme/nvme*; do
+    if [[ $(basename "$(readlink -f "$ctrl/device")") == "$ADDR" ]]; then
+        for d in $(ls "$ctrl" | grep -E '^nvme[0-9]+n[0-9]+$'); do
+            [[ "$ROOT_DISK" == "$d"* ]] && { echo "ERROR: $ADDR holds the root filesystem — refusing" >&2; exit 1; }
+        done
     fi
 done
 
 echo ""
-echo "=== VFIO Setup Complete ==="
+echo "Binding $ADDR to vfio-pci at boot via driver_override"
+cat > "$RULE" <<EOF
+# Generated by enable-vfio.sh — bind ONE NVMe controller (by address) to vfio-pci.
+ACTION=="add", SUBSYSTEM=="pci", KERNELS=="$ADDR", ATTR{driver_override}="vfio-pci"
+EOF
+cat > "$MODPROBE" <<'EOF'
+# Load vfio-pci before nvme so the driver_override above wins the race.
+softdep nvme pre: vfio-pci
+EOF
+
+# Ship both into the initramfs (rpm-ostree builds it locally from now on).
+rpm-ostree initramfs --enable \
+    --arg=-I --arg="$RULE" \
+    --arg=-I --arg="$MODPROBE" \
+    --arg=--add-drivers --arg="vfio-pci vfio vfio_iommu_type1"
+
+group=$(basename "$(readlink -f "/sys/bus/pci/devices/$ADDR/iommu_group")" 2>/dev/null || echo "?")
 echo ""
-echo "REBOOT required to apply the vfio-pci.ids kernel parameter."
+echo "IOMMU group of $ADDR: $group  (everything in that group goes to the VM together):"
+ls "/sys/kernel/iommu_groups/$group/devices" 2>/dev/null | sed 's/^/  /'
 echo ""
-echo "After reboot, verify the device is bound to vfio-pci:"
-echo "  lspci -nnk -s $SHORT_ADDR"
-echo "  (Should show 'Kernel driver in use: vfio-pci')"
-echo ""
-echo "Then configure your Windows VM in virt-manager:"
-echo "  1. Add Hardware → PCI Host Device"
-echo "  2. Select the NVMe controller at $SHORT_ADDR"
-echo "  3. The VM will see it as a physical NVMe drive"
-echo ""
-echo "Current kernel args:"
-rpm-ostree kargs
+echo "REBOOT, then verify:  lspci -nnk -s $ADDR      (Kernel driver in use: vfio-pci)"
+echo "Then in virt-manager: Add Hardware -> PCI Host Device -> $ADDR"

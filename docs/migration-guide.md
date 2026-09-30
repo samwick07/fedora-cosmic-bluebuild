@@ -1,424 +1,248 @@
-# Framework 13 AMD — Migration Guide
+# Framework 13 AMD — Install, Migration and Recovery Runbook
 
-Step-by-step guide for migrating from Fedora Workstation to Fedora Cosmic Atomic
-using the custom BlueBuild image.
+This is the complete procedure to bring the laptop back from nothing: a blank or
+existing disk, the DAS with the restic repo, this repository, and a machine that
+can run podman. Follow it top to bottom for the first install; for a rebuild
+after a disaster start at **Phase 2**.
 
-## Prerequisites
+Two disks are involved during the migration:
 
-- BlueBuild image built and pushed to GHCR (verified green CI)
-- Restic backup completed (DAS connected at `/run/media/<user>/DAS`)
-- Cosign private key backed up (`~/migration-prep/bluebuild-recipe/cosign.key`)
-- Ventoy USB drive with the Fedora Cosmic Atomic F44 ISO
-- 2TB NVMe physically installed in the laptop (4TB removed)
+| Disk | Role | LUKS UUIDs (protected by `install-atomic.sh`) |
+| --- | --- | --- |
+| 4TB NVMe (internal) | Fedora 44 Workstation — the current OS. Untouched until Phase 5. | root `00000000-0000-0000-0000-000000000000`, swap `00000000-0000-0000-0000-000000000000` |
+| 2TB NVMe in the DAS enclosure | Test target. Gets wiped and reinstalled freely. | (see `scripts/targets/2tb-test.env` after generating it) |
+| DAS data disk | restic repos, backup scripts, hermes backup. Never a target. | `00000000-0000-0000-0000-000000000000` |
 
-## Step 1: Install Cosmic Atomic from ISO
+Bootloader: **GRUB** (Fedora Atomic default, BLS entries on the ext4 `/boot`).
+See `docs/bootloader.md` for why systemd-boot is not used.
 
-1. Boot from the Ventoy USB drive
-2. Select `Fedora-COSMIC-Atomic-ostree-x86_64-44-1.7.iso`
-3. In the Anaconda installer:
-   - **Installation Destination:** Select the 2TB NVMe
-   - **Partitioning:** Custom (or Standard Partition scheme, NOT LVM)
-     - Create these partitions:
-       ```
-       /boot/efi   600M   EFI System Partition (vfat)
-       /boot       2G     ext4
-       swap        96G    LUKS encrypted (for hibernation with 60GB RAM)
-       /           rest   LUKS encrypted btrfs
-       ```
-   - **Root Password:** Set it (needed for initial setup)
-   - **User:** Create your user `<user>`, make it administrator
-4. Begin installation and wait for it to complete
-5. Reboot (remove Ventoy USB)
+---
 
-## Step 2: First Boot (Stock Cosmic Atomic F44)
+## Phase 0 — Before touching anything
 
-1. Boot into the new system
-2. Connect to Wi-Fi (or Ethernet)
-3. Open a terminal (Ghostty won't be installed yet — use the default terminal)
-
-## Step 3: Switch to systemd-boot (before rebasing)
-
-The installer uses GRUB by default. Switch to systemd-boot for BLS-native ostree:
-
-```bash
-# Install systemd-boot to the ESP
-sudo bootctl install
-
-# Configure the loader
-sudo mkdir -p /boot/efi/loader
-sudo tee /boot/efi/loader/loader.conf << 'EOF'
-default @saved
-timeout 5
-editor yes
-EOF
-
-# Set as firmware default
-sudo efibootmgr -c -d /dev/nvme0n1 -p 1 \
-  -L "systemd-boot" -l '\EFI\systemd\systemd-bootx64.efi'
-
-# Verify
-bootctl list
-```
-
-Reboot and verify:
-```bash
-bootctl status    # should say "Product: systemd-boot"
-```
-
-## Step 4: Rebase to Custom Image (Unsigned)
-
-The first rebase uses the unsigned image to install the signing keys:
-
-```bash
-sudo rpm-ostree rebase ostree-unverified-registry:ghcr.io/samwick07/fedora-cosmic-framework:latest
-sudo systemctl reboot
-```
-
-## Step 5: Second Boot (Custom Image, Unsigned)
-
-Verify the rebase worked:
-```bash
-rpm-ostree status
-# Should show: fedora-cosmic-framework:latest
-```
-
-Now rebase to the signed image for verified updates:
-
-```bash
-sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-framework:latest
-sudo systemctl reboot
-```
-
-## Step 6: Third Boot (Custom Image, Signed)
-
-Verify:
-```bash
-rpm-ostree status
-# Should show: ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-framework:latest
-```
-
-## Step 7: Enable Hibernation
-
-**This step and all subsequent steps are automated.** After the signed rebase
-and reboot, run the single orchestrator script:
-
-```bash
-sudo /usr/local/bin/post-install-setup.sh
-```
-
-This handles everything:
-1. Mount DAS and unlock restic repo
-2. Restore home directory, system configs, restic sudoers
-3. Enable hibernation (detects swap UUID, sets resume= karg)
-4. Configure CAC / smart card reader (DoD certs, OpenSC, browser NSS)
-5. Create distrobox containers
-6. Restore libvirt VMs (Win11VM XML + qcow2)
-7. Install flatpaks and pcsc socket overrides
-8. Restore Hermes config
-
-The script is idempotent — safe to re-run. It tracks completed steps in
-`/var/lib/post-install-setup/`. You can also run individual steps:
-
-```bash
-sudo post-install-setup.sh --list       # show step status
-sudo post-install-setup.sh --check      # verify everything
-sudo post-install-setup.sh --step 3     # run only hibernation
-```
-
-**REBOOT after the script completes** (for the hibernation kargs to take effect).
-
-To iterate on the script as you adapt to COSMIC DE:
-```bash
-# Edit the script in the repo (it's baked into the image)
-nano ~/migration-prep/bluebuild-recipe/files/scripts/post-install-setup.sh
-git add -A && git commit -m "tweak: <change>" && git push
-# Next image build and rebase picks up your changes
-```
-
-The sections below describe what each step does, for reference.
-
-### Hibernation Details
-
-## Step 8: Test Hibernation
-
-```bash
-# Test suspend first
-systemctl suspend
-
-# After wake, test hibernation
-systemctl hibernate
-
-# After wake, test suspend-then-hibernate (lid close behavior)
-systemctl suspend-then-hibernate
-```
-
-If hibernation fails:
-- Verify Secure Boot is DISABLED in BIOS (required for resume from encrypted swap)
-- Verify the swap partition is large enough (96GB for 60GB RAM)
-- Check: `cat /proc/cmdline` — should contain `resume=UUID=...`
-- Check: `swapon --show` — swap should be active
-
-## Step 9: Mount the DAS
-
-```bash
-# The DAS is LUKS-encrypted. GNOME may auto-mount it when you click it
-# in the file manager. If not, unlock and mount manually:
-# (Device is /dev/sda1 when 4TB is removed and only DAS is on USB/SATA)
-sudo cryptsetup luksOpen /dev/sda1 luks-00000000-0000-0000-0000-000000000000
-sudo mount /dev/mapper/luks-00000000-0000-0000-0000-000000000000 /run/media/<user>/DAS
-```
-
-Note: If the DAS device name differs (e.g. /dev/sdb1), check with `lsblk`.
-The LUKS UUID (00000000-0000-0000-0000-000000000000) stays constant.
-
-## Step 10: Restore Data from Restic
-
-First, restore the restic password file (it's in the home directory backup):
-
-```bash
-# The password file is at ~/.restic/frmwrk-repo.pass in the backup
-# If you already restored /home/<user>/ below, it's there. If not:
-sudo RESTIC_REPOSITORY="/run/media/<user>/DAS/frmwrk-restic-repo" \
-  RESTIC_PASSWORD_FILE="$HOME/.restic/frmwrk-repo.pass" \
-  restic restore latest --target / --include /home/<user>/.restic/
-```
-
-Then restore the home directory (includes Documents, dotfiles, DoD certs, migration-prep):
-
-```bash
-export RESTIC_REPOSITORY="/run/media/<user>/DAS/frmwrk-restic-repo"
-export RESTIC_PASSWORD_FILE="$HOME/.restic/frmwrk-repo.pass"
-
-# Verify the repo is accessible
-sudo RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
-  restic snapshots
-
-# Restore home directory (this includes the DoD cert bundle needed for Step 11)
-sudo RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
-  restic restore latest --target / --include /home/<user>/
-
-# Restore system configs
-sudo RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
-  restic restore latest --target / --include /etc/libvirt/
-sudo RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
-  restic restore latest --target / --include /etc/NetworkManager/
-```
-
-After restoring home, fix ownership (restic restores as root):
-
-```bash
-sudo chown -R <user>:<user> /home/<user>/
-```
-
-Also restore the restic sudoers config for passwordless restic:
-
-```bash
-# Reinstall the sudoers file (backed up in ~/migration-prep/)
-sudo install -m 0440 -o root -g root \
-  ~/migration-prep/bluebuild-recipe/scripts/restic-backup-sudoers \
-  /etc/sudoers.d/restic-backup
-sudo visudo -cf  # validate
-```
-
-Note: If the sudoers file isn't at that path, create it manually — see the
-"Restic Sudoers" section at the bottom of this guide.
-
-## Step 11: Set Up CAC / Smart Card Reader
-
-The image bakes in `setup-cac.sh` at `/usr/local/bin/setup-cac.sh`. It configures:
-- pcscd smart card daemon (already enabled via systemd module)
-- OpenSC PKCS#11 module in p11-kit (system-wide)
-- DoD root CA certificates in system trust store (/etc/pki/ca-trust/)
-- DoD certificates in user NSS database (~/.pki/nssdb — used by Chrome)
-- OpenSC PKCS#11 module in Firefox and Zen browser NSS databases
-
-Prerequisite: DoD cert bundle must be restored from backup first (Step 10 restores
-~/Documents/ including the cert bundle at ~/Documents/<private>/DoD PKI/).
-
-```bash
-# Run the CAC setup script
-setup-cac.sh
-
-# Verify
-setup-cac.sh --check
-
-# Test with CAC inserted
-pkcs11-tool --list-objects --type cert
-opensc-tool --list-readers
-```
-
-Restart Firefox and Zen browser for the PKCS#11 module to take effect.
-
-Flatpak browsers are sandboxed and can't access pcscd by default. The script
-automatically applies `flatpak override --user --socket=pcsc` to both Firefox
-and Zen. If a browser is installed after running setup-cac.sh, re-run the script
-or apply the override manually:
-```bash
-flatpak override --user --socket=pcsc org.mozilla.firefox
-flatpak override --user --socket=pcsc io.github.zen_browser.zen
-```
-
-The DoD cert bundle rotates approximately every 2 years. To update:
-1. Download the latest bundle from https://public.cyber.mil/pki-pke/
-2. Extract to ~/Documents/<private>/DoD PKI/unclass-certificates_pkcs7_DoD/
-3. Re-run: setup-cac.sh
-
-## Step 12: Set Up Distrobox Containers
-
-```bash
-# Create all containers from the declarative .ini definitions
-/usr/local/bin/distrobox-setup.sh
-
-# Verify
-distrobox-list
-# Should show: fedora-ws, rocm, debian, ClaudeCode
-```
-
-## Step 13: Restore VM Manager VMs
-
-The Win11VM XML and qcow2 are in the restic backup.
-
-```bash
-# Ensure libvirtd is running
-sudo systemctl start libvirtd
-
-# The XML was backed up from /etc/libvirt/qemu/Win11VM.xml
-# and the qcow2 from /var/lib/libvirt/vm-images/Win11VM.qcow2
-# Restore both from restic (if not already restored in Step 10):
-sudo RESTIC_REPOSITORY="/run/media/<user>/DAS/frmwrk-restic-repo" \
-  RESTIC_PASSWORD_FILE="$HOME/.restic/frmwrk-repo.pass" \
-  restic restore latest --target / --include /etc/libvirt/qemu/
-sudo RESTIC_REPOSITORY="/run/media/<user>/DAS/frmwrk-restic-repo" \
-  RESTIC_PASSWORD_FILE="$HOME/.restic/frmwrk-repo.pass" \
-  restic restore latest --target / --include /var/lib/libvirt/vm-images/
-
-# Define the VM (if not auto-defined by libvirtd)
-sudo virsh define /etc/libvirt/qemu/Win11VM.xml
-
-# Verify
-virsh list --all
-# Should show: Win11VM (shut off)
-```
-
-## Step 14: Install Flatpaks
-
-The default flatpaks are installed on first boot, but user-scope flatpaks
-may need manual install:
-
-```bash
-flatpak install flathub org.mozilla.firefox
-flatpak install flathub io.github.zen_browser.zen
-flatpak install flathub com.github.tchx84.Flatseal
-flatpak install flathub it.mijorus.gearlever
-flatpak install flathub org.videolan.VLC
-flatpak install flathub org.darktable.Darktable
-flatpak install flathub org.inkscape.Inkscape
-flatpak install flathub org.gimp.GIMP
-flatpak install flathub com.calibre_ebook.calibre
-flatpak install flathub org.zotero.Zotero
-flatpak install flathub com.visualstudio.code
-```
-
-## Step 15: Restore Hermes
-
-If you backed up Hermes to the DAS:
-
-```bash
-# Restore Hermes config and state
-rsync -av /run/media/<user>/DAS/hermes-backup/ ~/.hermes/
-```
-
-## Verification Checklist
-
-After completing all steps, verify:
-
-- [ ] `rpm-ostree status` shows the signed custom image
-- [ ] `bootctl status` shows systemd-boot
-- [ ] `systemctl hibernate` works (suspends to disk and resumes)
-- [ ] Lid close triggers suspend-then-hibernate
-- [ ] DAS mounts and restic repo is accessible
-- [ ] `distrobox-list` shows all 4 containers
-- [ ] Flatpaks are installed and launch
-- [ ] Wi-Fi works (NetworkManager configs restored)
-- [ ] `rocminfo` works inside the rocm distrobox container
-- [ ] `tailscale status` shows connected
-- [ ] `virt-manager` opens and Win11VM is listed
-- [ ] CAC reader: `setup-cac.sh --check` shows all green
-- [ ] CAC reader: `opensc-tool --list-readers` detects card reader
-- [ ] CAC reader: `pkcs11-tool --list-objects --type cert` shows CAC certs when card inserted
-- [ ] Firefox prompts for CAC PIN when accessing DoD sites
-
-## Rollback
-
-If anything goes wrong, ostree makes rollback trivial:
-
-```bash
-# Rollback to previous deployment
-sudo rpm-ostree rollback
-sudo systemctl reboot
-```
-
-If the system is unbootable:
-- The previous deployment appears in the systemd-boot menu at boot time
-- Select it to boot into the previous working state
-- From there, investigate or rollback
-
-## Fedora 45 Upgrade (After Oct 20 Release)
-
-Wait 2-4 weeks after F45 release for COPR packages to catch up, then:
-
-1. Edit `recipes/recipe-framework.yml`:
-   ```yaml
-   image-version: 45  # was 44
-   ```
-2. Commit and push:
+1. **Backup is fresh and verified.** On the Workstation:
    ```bash
-   git add recipes/*.yml && git commit -m "upgrade: Fedora 45" && git push
+   export RESTIC_REPOSITORY=/run/media/<user>/DAS/frmwrk-restic-repo RESTIC_PASSWORD_FILE=~/.restic/frmwrk-repo.pass
+   sudo restic unlock
+   sudo restic snapshots --latest 3
+   sudo restic check --read-data-subset=10%           # ~1 h on USB; do the full --read-data once before Phase 5
+   # dry-run restore of something small, to prove passphrase + syntax
+   sudo restic restore latest --target /tmp/rt --include /home/<user>/.ssh && ls -la /tmp/rt/home/<user>/.ssh && sudo rm -rf /tmp/rt
    ```
-3. Wait for GitHub Actions to build (green checkmark)
-4. On the laptop:
+   If the backup script on the DAS is older than `backup/frmwrk_backup_command.sh`
+   in this repo, copy the repo versions over and run a backup:
    ```bash
-   rpm-ostree upgrade
-   sudo systemctl reboot
+   cp backup/frmwrk_backup_command.sh backup/frmwrk-restic-excludes /run/media/<user>/DAS/
+   /run/media/<user>/DAS/frmwrk_backup_command.sh
    ```
+2. **Secrets off the machine.** Copy to a USB stick / password manager:
+   `~/.restic/frmwrk-repo.pass` (and know the passphrase itself), `cosign.key`,
+   the LUKS passphrases, the Windows VM BitLocker recovery key if enabled.
+3. **Secure Boot OFF** in the Framework firmware (F2 → Security). Required for
+   hibernation (kernel lockdown) and for the custom image.
+4. **Image built and pushed.** `docs/local-build.md`. You need
+   `localhost/fedora-cosmic-framework:latest` in podman and the same image on
+   GHCR (public) for updates.
+5. **Dotfiles repo exists.** Push `~/migration-prep/dotfiles` to
+   `github.com/samwick07/dotfiles` (private is fine — step 6 clones over SSH with
+   the restored key). Test it on the Workstation first:
+   `chezmoi init --source ~/migration-prep/dotfiles --dry-run --verbose` shows
+   exactly what would change without touching anything.
+6. **Syncthing on the desktop: pause every shared folder** for the duration of
+   the rebuild (Actions → Pause per folder). Resume after step 6 finishes.
 
-## Appendix: Restic Sudoers
+---
 
-If the sudoers file isn't available from backup, create it manually:
+## Phase 1 — Prepare the target disk
 
-```bash
-sudo tee /etc/sudoers.d/restic-backup << 'EOF'
-# Allow passwordless restic for backup script
-Cmnd_Alias RESTIC = /usr/bin/restic
-<user> ALL=(root) NOPASSWD: RESTIC
-Defaults!RESTIC env_keep += "RESTIC_REPOSITORY RESTIC_PASSWORD_FILE"
-EOF
-sudo chmod 0440 /etc/sudoers.d/restic-backup
-sudo visudo -cf  # validate
+The install script does **not** partition. The disk must already have:
+
+```
+p1  600M   vfat         EFI system partition
+p2  1–2G   ext4         /boot
+p3  96G    crypto_LUKS  -> swap        (RAM 60 GB × 1.5; needed for hibernation)
+p4  rest   crypto_LUKS  -> btrfs /     (the script reformats the btrfs, keeps the LUKS)
 ```
 
-This allows the backup script to run `sudo restic` without a password prompt,
-while preserving the RESTIC_REPOSITORY and RESTIC_PASSWORD_FILE environment
-variables that sudo normally strips.
-
-## Appendix: Restic Backup Script
-
-The backup script is at `/run/media/<user>/DAS/frmwrk_backup_command.sh` on the DAS.
-It backs up:
-
-- `~/` — user data (Documents, dotfiles, DoD certs, migration-prep, etc.)
-- `/var/lib/libvirt/vm-images/` — Win11VM.qcow2
-- `/var/lib/libvirt/images/` — libvirt default pool
-- `/etc/libvirt/` — ALL libvirt config (VM XMLs, storage pools, networks, hooks)
-- `/etc/fstab` — mount table
-- `/etc/crypttab` — LUKS UUIDs
-- `/boot/loader/entries/` — BLS boot entries
-- `/etc/NetworkManager/` — network connections + VPN configs
-- `/etc/systemd/system/` — custom systemd units
-- `~/migration-prep/` — BlueBuild recipe, cosign key
-
-Run after migration:
+The 2TB test drive already has this layout (from the previous attempt). For a
+blank disk, create it once — either with the Fedora installer (Custom
+partitioning, "Encrypt" on p3 and p4, then abort/ignore the OS it installs) or
+by hand:
 
 ```bash
-/run/media/<user>/DAS/frmwrk_backup_command.sh
+D=/dev/sdX                                     # CHECK with lsblk -o NAME,SIZE,MODEL first
+sudo sgdisk --zap-all $D
+sudo sgdisk -n1:0:+600M -t1:ef00 -c1:EFI \
+            -n2:0:+2G   -t2:8300 -c2:boot \
+            -n3:0:+96G  -t3:8309 -c3:cryptswap \
+            -n4:0:0     -t4:8309 -c4:cryptroot $D
+sudo mkfs.vfat -F32 -n EFI ${D}1
+sudo mkfs.ext4 -L boot ${D}2
+sudo cryptsetup luksFormat --type luks2 ${D}3
+sudo cryptsetup luksFormat --type luks2 ${D}4
+# The install script will mkswap / mkfs.btrfs inside the containers.
 ```
+
+Then generate the target file and **read it against `lsblk`**:
+
+```bash
+cd ~/migration-prep/fedora-cosmic-bluebuild
+sudo scripts/make-target-env.sh /dev/sdX > scripts/targets/2tb-test.env
+lsblk -o NAME,SIZE,FSTYPE,UUID,MODEL /dev/sdX
+cat scripts/targets/2tb-test.env
+```
+
+---
+
+## Phase 2 — Install
+
+```bash
+cd ~/migration-prep/fedora-cosmic-bluebuild
+sudo scripts/install-atomic.sh scripts/targets/2tb-test.env
+```
+
+The script prints the disk, every partition and what it will do, then waits for
+you to type the disk name. It refuses to run if any protected UUID or the
+running OS is on the target. Expect ~5–10 minutes. It ends with
+`Installation complete on /dev/sdX`.
+
+If it fails, the most useful evidence is the bootc output plus
+`sudo findmnt -R /mnt/atomic-target`. Fix, re-run: the script reformats the
+btrfs root each time, so a half-written target is never a problem.
+
+Behind the scenes it does: `mkfs.btrfs` → mount root, `/boot`, `/boot/efi` →
+`bootc install to-filesystem --bootloader grub --boot-mount-spec UUID=<boot>
+--karg rd.luks.uuid=<root> --karg rd.luks.uuid=<swap> --karg resume=UUID=<swap-fs>`
+→ writes `/etc/crypttab`, `/boot`, `/boot/efi` and swap lines into the new
+deployment's `/etc/fstab` → creates the `<user>` user + passwords → copies the
+target `.env` to `/etc/fedora-cosmic-atomic/install-target.env` on the new system.
+
+---
+
+## Phase 3 — First boot
+
+1. Reboot, **F12**, choose the target disk (it appears as its enclosure or
+   "Fedora"). Both LUKS containers prompt (once if the passphrases match).
+2. Log in as **`<user>`** with the password you typed during the install
+   (the script created the user, uid 1000, in `wheel` and `libvirt`, and gave
+   root the same password). There is no first-run wizard on the bootc path.
+3. Connect to Wi-Fi. Open the terminal (COSMIC Terminal; Ghostty is in the image too).
+4. Sanity:
+   ```bash
+   bootc status                     # image: ghcr.io/samwick07/fedora-cosmic-framework:latest
+   cat /proc/cmdline                # rd.luks.uuid=… ×2, resume=UUID=…
+   swapon --show                    # the 96G partition
+   findmnt /boot /boot/efi
+   ```
+5. If the DAS is not auto-mounted, click it in Files (unlock) so it is at
+   `/run/media/<user>/DAS`. Otherwise step 1 of the next script unlocks it.
+
+---
+
+## Phase 4 — Restore data, then declare the rest
+
+```bash
+sudo post-install-setup.sh
+```
+
+Steps, in order (each idempotent; `--step N` reruns one, `--check` reports):
+
+| # | Does | Needs |
+| --- | --- | --- |
+| 1 | Mounts the DAS by LUKS UUID | DAS attached, passphrase |
+| 2 | Restores `~/.restic` (prompts for the repo passphrase), then every path in `/etc/fedora-cosmic-atomic/restore-allowlist.txt` in order — Syncthing data folders, `.ssh`/`.gnupg`/`.config/gh`, `.claude`/`.hermes`/`migration-prep`, and **last** the Syncthing identity; plus `/etc/NetworkManager` and the restic sudoers | hours for ~1.4 TiB |
+| 3 | Verifies hibernation (karg, swap, SELinux); repairs on the Anaconda path | — |
+| 4 | CAC system half: pcscd, DoD roots into the system trust | cert bundle from step 2 |
+| 5 | libvirt: modular daemons, `/etc/libvirt`, `Win11VM.qcow2` (512 GB), NVRAM + swtpm state, defines the VM | — |
+| 6 | **User layer**: `chezmoi init --apply git@github.com:samwick07/dotfiles.git`. Its `run_once` scripts install Homebrew + `~/.Brewfile`, `distrobox assemble` the `dev`/`claude`/`rocm` containers, apply flatpak overrides, run `setup-cac.sh --user`, enable the Syncthing user service | SSH key from step 2; network; ~6 GB of pulls |
+| 7 | Tailscale: restore the old node identity or `tailscale up` as a new node | interactive |
+
+Then **log out and back in** (libvirt group, brew on PATH, dotfiles), and reboot
+if step 3 changed kargs.
+
+Nothing else from the old `~` comes back automatically — that is the point.
+`docs/clean-room.md` has the three-line recipe for pulling anything you miss
+from the archive and deciding which lane it belongs in.
+
+Not done by the script, by design:
+
+- **Docker → Podman**: `migrate-docker-to-podman.sh` (in `/usr/bin`) moves the
+  Open WebUI / SearXNG volumes from the backup into rootless podman. Run once.
+- **Hermes**: `~/.hermes` config is restored, the runtime is not (it was
+  excluded from the backup). Reinstall Hermes, then
+  `systemctl --user enable --now hermes-gateway.service` (unit comes from dotfiles).
+- **Claude Desktop + CLI**: the `claude` distrobox is assembled by chezmoi with
+  `claude-desktop` installed and exported ("Claude (on claude)" in the menu);
+  `run_once_25-claude-cli.sh` installs the CLI into the same box and `claude`
+  on the host is an alias into it. Sign in again on first launch.
+- **VS Code / Antigravity settings**: not restored. Sign in with Settings Sync,
+  or pull `~/.config/Code/User/settings.json` from the archive and
+  `chezmoi add` it.
+
+## Phase 5 — Validate, then do it for real
+
+Validation checklist for the test drive (all must pass before the 4TB run):
+
+- [ ] Boots unattended to the LUKS prompt and to the COSMIC login; `bootc status` shows the GHCR image
+- [ ] `systemctl hibernate` → power off → power on → session resumes; lid close suspends, hibernates after 5 min
+- [ ] Wi-Fi and the OpenVPN/OpenConnect profiles connect
+- [ ] `post-install-setup.sh --check` is all green
+- [ ] `chezmoi doctor` clean; `brew bundle check --global` says satisfied; `code` opens from the app menu (exported from the `dev` box)
+- [ ] `distrobox enter rocm -- rocminfo | grep gfx` shows gfx1103 (with `HSA_OVERRIDE_GFX_VERSION=11.0.0` exported)
+- [ ] Syncthing GUI shows the desktop connected and every folder "Up to Date" with **no** `.sync-conflict` files created by the rebuild
+- [ ] `virsh -c qemu:///system start Win11VM` boots to the Windows login
+- [ ] CAC: `opensc-tool --list-readers`, PIN prompt on a DoD site in native Firefox; note whether the flatpak browsers work
+- [ ] `sudo bootc upgrade` pulls from GHCR without auth errors (package is public)
+- [ ] Run the backup script from the new OS once; `restic snapshots` shows it
+- [ ] Use it for a few days. Every fix goes into this repo (system) or the dotfiles repo (user) → rebuild / `chezmoi update`
+
+Then the 4TB:
+
+1. Last Workstation backup + `restic check`. Copy anything not in the backup
+   list that you would miss (check `restic ls latest | less`).
+2. Boot the **test drive** (not the Workstation). From there the 4TB is just
+   another disk, so `install-atomic.sh`'s "running system" guard does not fire.
+3. `sudo scripts/make-target-env.sh /dev/nvme0n1 > scripts/targets/4tb-primary.env`,
+   set `SKIP_FINALIZE=0`, and **edit `PROTECTED_LUKS_UUIDS`**: remove the two
+   4TB UUIDs, add the test drive's root LUKS UUID.
+4. `sudo scripts/install-atomic.sh scripts/targets/4tb-primary.env` — this
+   reformats the 4TB's btrfs root. The ESP, `/boot`, and the LUKS containers
+   (same passphrases) are kept.
+5. Reboot into the 4TB, Phase 3 + 4 again (the restore is the slow part).
+6. Keep the test drive as a bootable spare until the 4TB has survived a week
+   and one `bootc upgrade`.
+
+The desktop follows the same runbook with `recipe-desktop.yml` — planned only
+after the laptop has proven the workflow for several months.
+
+---
+
+## Rollback and recovery
+
+| Problem | Action |
+| --- | --- |
+| New deployment does not boot | GRUB menu → previous entry. Then `sudo bootc rollback` to make it permanent. |
+| Whole disk unbootable | Boot the other disk (test drive ⇄ 4TB) via F12; reinstall the broken one with `install-atomic.sh` (5 min) and rerun `post-install-setup.sh`. |
+| Image on GHCR broken | `sudo bootc switch --transport containers-storage localhost/fedora-cosmic-framework:latest` with a known-good local build, or `bootc rollback`. |
+| Lost `cosign.key` | Build/push unsigned, `bootc switch ghcr.io/…` (unsigned transport is the default). Regenerate keys, commit new `cosign.pub`, rebuild, rebase signed later. |
+| Lost restic password file | The passphrase itself is enough: `restic -r <repo> restore …` prompts for it. |
+| Forgot which UUIDs a disk was installed with | `/etc/fedora-cosmic-atomic/install-target.env` on that system. |
+| LUKS prompt never appears | Boot with the previous entry; check `rd.luks.uuid` in `/proc/cmdline` and `/etc/crypttab`; `sudo rpm-ostree kargs --append-if-missing=rd.luks.uuid=<uuid>`. |
+| Hibernate fails | `sudo enable-hibernation.sh --check`; Secure Boot must be off; `journalctl -b -1 -u systemd-hibernate`. |
+
+---
+
+## Anaconda alternative (if you ever prefer the ISO)
+
+`Fedora-COSMIC-Atomic-ostree-x86_64-44-1.7.iso` (fedoraproject.org → Atomic
+Desktops → COSMIC). Custom partitioning with the layout above, user `<user>`.
+After first boot:
+
+```bash
+sudo rpm-ostree rebase ostree-unverified-registry:ghcr.io/samwick07/fedora-cosmic-framework:latest && sudo systemctl reboot
+sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-framework:latest && sudo systemctl reboot   # optional, after a signed push
+sudo enable-hibernation.sh          # adds resume=; Anaconda already wrote crypttab/fstab
+sudo post-install-setup.sh
+```
+
+Anaconda installs GRUB with shim; Secure Boot still has to be off for hibernation.

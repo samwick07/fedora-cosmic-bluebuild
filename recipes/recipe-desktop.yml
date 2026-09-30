@@ -6,11 +6,13 @@
 # CPU: AMD Ryzen 9 9950X (16-core Zen 5, Granite Ridge)
 # GPU: AMD Radeon RX 9070 XT (Navi 48, RDNA 4, discrete)
 # RAM: 96GB DDR5-5600 (2x 48GB)
-# Storage: 4TB + 2TB Crucial T700 NVMe
+# Storage: 4TB + 2TB Crucial T700 NVMe  (SAME vendor:device ID — see VFIO note)
 # Network: Intel I226-V Ethernet + MediaTek MT7927 Wi-Fi 7
 # Peripherals: PiKVM, SCR3500 smart card reader, ROG STRIX HIVE II
 #
-# Published to: ghcr.io/USERNAME/fedora-cosmic-desktop:latest
+# Local build:   bluebuild build recipes/recipe-desktop.yml
+#                -> localhost/fedora-cosmic-desktop:latest
+# Published to:  ghcr.io/samwick07/fedora-cosmic-desktop:latest
 
 name: fedora-cosmic-desktop
 description: Fedora Atomic COSMIC for desktop (Ryzen 9950X + RX 9070 XT)
@@ -25,18 +27,16 @@ modules:
   # ─────────────────────────────────────────────
   # DESKTOP-SPECIFIC PACKAGES
   # ─────────────────────────────────────────────
-  # No additional packages needed — everything below is already in the
-  # cosmic-atomic base image or handled differently:
-  #   - asusctl: needs lizardue/cachyos-rising COPR, install post-rebase
+  # Nothing extra yet:
+  #   - asusctl: needs the lizardue/cachyos-rising COPR; add here once tested
   #   - linux-firmware, pcsc-lite, pcsc-lite-ccid: already in base image
 
   # ─────────────────────────────────────────────
-  # VFIO: PCIe passthrough for Windows 11 VM
+  # VFIO: PCIe passthrough of the 2TB NVMe to the Windows 11 VM
   # ─────────────────────────────────────────────
-  # The 2TB NVMe (nvme1n1) is passed through to a Windows 11 KVM VM
-  # as a PCIe device. IOMMU is enabled statically; the vfio-pci.ids
-  # value depends on the specific NVMe controller and is set post-install
-  # by enable-vfio.sh.
+  # IOMMU is enabled statically here. The device binding is done by PCI
+  # ADDRESS post-install (enable-vfio.sh), never by vfio-pci.ids: both T700s
+  # share one vendor:device ID, so an ids= karg would grab the boot drive too.
   - type: kargs
     arch: x86_64
     kargs:
@@ -46,10 +46,8 @@ modules:
   # ─────────────────────────────────────────────
   # DESKTOP-SPECIFIC AMD GPU CONFIG
   # ─────────────────────────────────────────────
-  # RX 9070 XT is Navi 48 (RDNA 4). ROCm support for RDNA 4 is newer
-  # and may use different gfx version strings than the Framework's APU.
-  # RDNA 4 compute may report as gfx12 or similar — verify after install with:
-  #   rocminfo | grep gfx
+  # RX 9070 XT is Navi 48 (RDNA 4, gfx1201). Verify after install with:
+  #   distrobox enter rocm -- rocminfo | grep gfx
   - type: script
     scripts:
       - configure-amd-gpu-desktop.sh
@@ -57,12 +55,14 @@ modules:
   # ─────────────────────────────────────────────
   # VFIO POST-INSTALL SCRIPT
   # ─────────────────────────────────────────────
-  # enable-vfio.sh detects the 2TB NVMe's vendor:device ID and sets
-  # the vfio-pci.ids kernel parameter. Placed at /usr/local/bin/.
   - type: files
     files:
-      - source: vfio/enable-vfio.sh
-        destination: /usr/local/bin/enable-vfio.sh
+      - source: scripts/enable-vfio.sh
+        destination: /usr/bin/enable-vfio.sh
+
+  - type: script
+    snippets:
+      - "chmod 0755 /usr/bin/enable-vfio.sh"
 
   # ─────────────────────────────────────────────
   # OS IDENTITY
@@ -73,5 +73,10 @@ modules:
       PRETTY_NAME: Fedora Cosmic Atomic for Desktop (9950X + 9070 XT)
       VARIANT: Desktop
       VARIANT_ID: desktop
+
+  # ─────────────────────────────────────────────
+  # INITRAMFS — must run after every module that touches /etc or kernel bits
+  # ─────────────────────────────────────────────
+  - type: initramfs
 
   - type: signing

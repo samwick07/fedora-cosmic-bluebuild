@@ -1,16 +1,22 @@
 name: bluebuild
 
+# Images are built and pushed LOCALLY (see docs/local-build.md). This workflow
+# is kept only as a fallback for when the laptop is unavailable — run it by
+# hand from the Actions tab. No schedule, no push trigger, no PR builds:
+# every one of those costs GitHub Actions minutes for no benefit.
 on:
-  schedule:
-    - cron: "00 17 * * *"  # build at 17:00 UTC every day
-  push:
-    paths-ignore:
-      - "**.md"
-  pull_request:
-  workflow_dispatch:  # allow manual triggering
+  workflow_dispatch:
+    inputs:
+      recipe:
+        description: "Recipe to build"
+        required: true
+        default: recipe-framework.yml
+        type: choice
+        options:
+          - recipe-framework.yml
+          - recipe-desktop.yml
 
 concurrency:
-  # only run one build at a time
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
   cancel-in-progress: true
 
@@ -22,18 +28,12 @@ jobs:
       contents: read
       packages: write
       id-token: write
-    strategy:
-      fail-fast: false  # don't cancel desktop build if framework build fails
-      matrix:
-        recipe:
-          - recipe-framework.yml
-          - recipe-desktop.yml
 
     steps:
       - name: Build Custom Image
         uses: blue-build/github-action@v1.13
         with:
-          recipe: ${{ matrix.recipe }}
+          recipe: ${{ inputs.recipe }}
           cosign_private_key: ${{ secrets.SIGNING_SECRET }}
           registry_token: ${{ secrets.GHCR_TOKEN }}
           pr_event_number: ${{ github.event.number }}

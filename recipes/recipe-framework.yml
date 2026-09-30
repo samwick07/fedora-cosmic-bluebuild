@@ -2,13 +2,16 @@
 # yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
 #
 # Framework 13 AMD image
-# CPU: AMD Ryzen 7040U (Phoenix, Zen 4, integrated Radeon 780M)
-# GPU: Integrated AMD RDNA3 (gfx1103) — no discrete GPU
-# RAM: Per your configuration
+# CPU: AMD Ryzen 7040U (Phoenix, Zen 4)
+# GPU: Integrated Radeon 780M (RDNA3, reports as gfx1103) — no discrete GPU
 # Display: Framework 13" panel
-# Special: Laptop power management, Framework hardware quirks
+# Special: Laptop power management, fingerprint reader, ambient light sensor,
+#          suspend-then-hibernate on lid close (96 GB LUKS swap partition)
 #
-# Published to: ghcr.io/USERNAME/fedora-cosmic-framework:latest
+# Local build:   bluebuild build recipes/recipe-framework.yml
+#                -> localhost/fedora-cosmic-framework:latest
+# Publish:       see docs/local-build.md
+# Published to:  ghcr.io/samwick07/fedora-cosmic-framework:latest
 
 name: fedora-cosmic-framework
 description: Fedora Atomic COSMIC for Framework 13 AMD
@@ -23,43 +26,46 @@ modules:
   # ─────────────────────────────────────────────
   # FRAMEWORK-SPECIFIC PACKAGES
   # ─────────────────────────────────────────────
+  # Installing a package that the base already ships is a no-op, so these are
+  # listed even though some are probably present: it documents the dependency.
   - type: dnf
     install:
+      install-weak-deps: false
       packages:
-        # Lid switch, backlight, ambient light sensor support
-        - iio-sensor-proxy
-        # Note: power-profiles-daemon conflicts with tuned-ppd (shipped in base)
-        # tuned-ppd provides the same ppd-service D-Bus interface
+        - iio-sensor-proxy        # ambient light sensor / rotation
+        - fprintd                 # fingerprint reader
+        - fprintd-pam
+        # power-profiles-daemon is NOT listed: it conflicts with tuned-ppd,
+        # which the base image ships and which provides the same D-Bus API.
 
   # ─────────────────────────────────────────────
   # FRAMEWORK-SPECIFIC AMD GPU CONFIG
   # ─────────────────────────────────────────────
-  # Framework 13 AMD uses Ryzen 7040 (Phoenix) which reports as gfx1036.
-  # ROCm needs HSA_OVERRIDE_GFX_VERSION to use compute on RDNA3 APUs.
+  # The 780M is gfx1103; ROCm has no kernels for it and needs
+  # HSA_OVERRIDE_GFX_VERSION=11.0.0 to run gfx1100 code on it.
   - type: script
     scripts:
       - configure-amd-gpu-framework.sh
 
   # ─────────────────────────────────────────────
-  # HIBERNATION: Suspend-then-hibernate on lid close
+  # HIBERNATION: suspend-then-hibernate on lid close
   # ─────────────────────────────────────────────
-  # Bakes in: sleep.conf, logind.conf, SELinux policy, post-install script.
-  # The resume= kernel parameter is set post-install by enable-hibernation.sh
-  # because the swap partition UUID is unique per installation.
-  # See docs/hibernation-setup.md for full details.
+  # Bakes in: sleep.conf.d + logind.conf.d drop-ins, SELinux policy module.
+  # resume= and rd.luks.uuid= are per-installation and are set by
+  # scripts/install-atomic.sh (bootc path) or by enable-hibernation.sh
+  # (Anaconda path). See docs/hibernation-setup.md.
   - type: script
     scripts:
       - configure-hibernation.sh
 
-  # ─────────────────────────────────────────────
-  # PLACE THE POST-INSTALL SCRIPT
-  # ─────────────────────────────────────────────
-  # enable-hibernation.sh is copied to /usr/local/bin/ so it can be run
-  # after first boot. It sets the resume= kernel parameter via rpm-ostree kargs.
   - type: files
     files:
-      - source: hibernation/enable-hibernation.sh
-        destination: /usr/local/bin/enable-hibernation.sh
+      - source: scripts/enable-hibernation.sh
+        destination: /usr/bin/enable-hibernation.sh
+
+  - type: script
+    snippets:
+      - "chmod 0755 /usr/bin/enable-hibernation.sh"
 
   # ─────────────────────────────────────────────
   # OS IDENTITY
@@ -70,5 +76,10 @@ modules:
       PRETTY_NAME: Fedora Cosmic Atomic for Framework 13 AMD
       VARIANT: Framework
       VARIANT_ID: framework
+
+  # ─────────────────────────────────────────────
+  # INITRAMFS — must run after every module that touches /etc or kernel bits
+  # ─────────────────────────────────────────────
+  - type: initramfs
 
   - type: signing

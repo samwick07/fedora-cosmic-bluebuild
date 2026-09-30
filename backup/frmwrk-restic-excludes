@@ -1,0 +1,52 @@
+# restic exclude file for the Framework 13 backup.
+# Patterns are ANCHORED (absolute). An unanchored "build/" would match any
+# directory called build anywhere under ~, including real project data.
+# Check the effect with:  restic ls latest | grep -E '/(build|dist|target)/'
+
+# ─── Cache and temp (regenerable) ───
+/home/<user>/.cache
+/home/<user>/.thumbnails
+/home/<user>/.local/share/Trash
+/home/<user>/.local/share/recently-used.xbel
+/home/<user>/.local/share/tracker
+/home/<user>/.local/share/tracker3
+/home/<user>/.npm
+/home/<user>/.var/app/*/cache
+
+# ─── Browser caches (profiles are kept) ───
+/home/<user>/.mozilla/firefox/*/cache2
+/home/<user>/.mozilla/firefox/*/startupCache
+/home/<user>/.var/app/org.mozilla.firefox/cache
+/home/<user>/.var/app/app.zen_browser.zen/cache
+
+# ─── VMs: ISOs and the duplicate eval VM ───
+/home/<user>/Downloads/WinDev2407Eval.VirtualBox
+/home/<user>/Downloads/WinDev2407Eval.VirtualBox.zip
+/home/<user>/Downloads/*.iso
+/home/<user>/VMs/*.iso
+
+# ─── Hermes runtime (agent install + cache — regenerable) ───
+/home/<user>/.hermes/cache
+/home/<user>/.hermes/tools
+/home/<user>/.hermes/installs
+/home/<user>/.hermes/lsp
+/home/<user>/.hermes/bin
+/home/<user>/.hermes/models_dev_cache.json
+
+# ─── Build artefacts and virtual environments (anywhere under ~, by exact name) ───
+/home/<user>/**/node_modules
+/home/<user>/**/.venv
+/home/<user>/**/venv
+/home/<user>/**/__pycache__
+/home/<user>/**/*.egg-info
+*.pyc
+# Rust/Java/JS output dirs are NOT excluded any more — too easy to lose a real
+# folder named build/dist/target. Add specific project paths here if needed.
+
+# ─── Wine prefixes, rootless podman storage (images are re-pullable) ───
+/home/<user>/.wine
+/home/<user>/.local/share/containers/storage
+
+# ─── Syncthing: logs and the rebuildable index (identity + config stay IN) ───
+/home/<user>/.local/state/syncthing/*.log
+/home/<user>/.local/state/syncthing/index-v2

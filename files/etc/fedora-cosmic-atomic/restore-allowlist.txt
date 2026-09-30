@@ -1,0 +1,37 @@
+# Paths restored from the restic snapshot by post-install-setup.sh (step 2),
+# IN THIS ORDER. One absolute path per line; '#' comments; blank lines ignored.
+# Everything not listed stays in the backup and is pulled on demand:
+#   sudo restic restore latest --target / --include /home/<user>/<path>
+#
+# Clean-room rule: DATA is restored, application STATE is not. Config comes from
+# the chezmoi dotfiles repo; app state is recreated by the app or fetched later.
+
+# ── Data (Syncthing folders — restore BEFORE the Syncthing identity below) ──
+/home/<user>/Documents
+/home/<user>/Pictures
+/home/<user>/Videos
+/home/<user>/Music
+/home/<user>/Desktop
+/home/<user>/Templates
+/home/<user>/Public
+/home/<user>/Downloads
+/home/<user>/Sync
+/home/<user>/Applications
+/home/<user>/AppImages
+/home/<user>/VMs
+
+# ── Identity & credentials (chezmoi/age will take these over later) ──
+/home/<user>/.ssh
+/home/<user>/.gnupg
+/home/<user>/.restic
+/home/<user>/.config/gh
+
+# ── Agent / tool state you want back as-is ──
+/home/<user>/.claude
+/home/<user>/.claude.json
+/home/<user>/.hermes
+/home/<user>/migration-prep
+
+# ── Syncthing identity — LAST, after every synced folder above is in place ──
+# (cert.pem/key.pem = this machine's device ID; config.xml = folders + peers)
+/home/<user>/.local/state/syncthing

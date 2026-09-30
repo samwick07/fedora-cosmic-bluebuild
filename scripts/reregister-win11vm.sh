@@ -12,9 +12,10 @@ set -euo pipefail
 
 echo "=== Re-registering Win11VM in libvirt ==="
 
-# 1. Start libvirtd and the default network
-echo "[1/5] Starting libvirtd..."
-systemctl start libvirtd
+# 1. Start the modular libvirt daemons (libvirtd.service conflicts with them)
+echo "[1/5] Starting libvirt (modular daemons)..."
+systemctl start virtqemud.socket virtnetworkd.socket virtstoraged.socket virtnodedevd.socket virtsecretd.socket
+export LIBVIRT_DEFAULT_URI=qemu:///system
 sleep 2
 
 # 2. Start the default network (NAT for VMs)
@@ -51,6 +52,10 @@ else
   <vcpu placement='static'>8</vcpu>
   <os>
     <type arch='x86_64' machine='q35'>hvm</type>
+    <!-- Keep the .fd firmware the VM was created with so the existing NVRAM file
+         (/var/lib/libvirt/qemu/nvram/Win11VM_VARS.fd, in the restic backup) stays
+         valid. If Fedora drops the .fd files, switch BOTH lines to the 4M qcow2
+         variants and convert the NVRAM: qemu-img convert -f raw -O qcow2 ... -->
     <loader readonly='yes' type='pflash'>/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd</loader>
     <nvram template='/usr/share/edk2/ovmf/OVMF_VARS.secboot.fd'>/var/lib/libvirt/qemu/nvram/Win11VM_VARS.fd</nvram>
     <boot dev='hd'/>
