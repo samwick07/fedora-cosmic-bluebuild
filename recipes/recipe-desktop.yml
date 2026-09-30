@@ -10,7 +10,7 @@
 # Network: Intel I226-V Ethernet + MediaTek MT7927 Wi-Fi 7
 # Peripherals: PiKVM, SCR3500 smart card reader, ROG STRIX HIVE II
 #
-# Local build:   bluebuild build recipes/recipe-desktop.yml
+# Local build:   bluebuild build -B podman recipes/recipe-desktop.yml
 #                -> localhost/fedora-cosmic-desktop:latest
 # Published to:  ghcr.io/samwick07/fedora-cosmic-desktop:latest
 

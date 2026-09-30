@@ -8,7 +8,7 @@
 # Special: Laptop power management, fingerprint reader, ambient light sensor,
 #          suspend-then-hibernate on lid close (96 GB LUKS swap partition)
 #
-# Local build:   bluebuild build recipes/recipe-framework.yml
+# Local build:   bluebuild build -B podman recipes/recipe-framework.yml
 #                -> localhost/fedora-cosmic-framework:latest
 # Publish:       see docs/local-build.md
 # Published to:  ghcr.io/samwick07/fedora-cosmic-framework:latest

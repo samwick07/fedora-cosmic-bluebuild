@@ -1,5 +1,5 @@
 # /etc/sudoers.d/restic-backup
 # Allows <user> to run restic as root without a password, for the backup script.
-# env_keep passes the repo location and password file through sudo -E.
+# env_keep passes the repo location and password file through plain `sudo restic` (no -E: that needs SETENV).
 Defaults:<user> env_keep += "RESTIC_REPOSITORY RESTIC_PASSWORD_FILE"
 <user> ALL=(root) NOPASSWD: /usr/bin/restic

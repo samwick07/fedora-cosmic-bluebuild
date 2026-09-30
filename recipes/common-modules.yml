@@ -184,3 +184,6 @@ modules:
   - type: script
     snippets:
       - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh"
+      # The files module keeps the checkout's modes; with umask 077 these land 0600
+      # and the user session / shells / distrobox assemble cannot read them.
+      - "chmod 0644 /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt"

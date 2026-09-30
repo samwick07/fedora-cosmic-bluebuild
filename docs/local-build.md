@@ -42,9 +42,14 @@ pinned to `ostree-image-signed:` refuse the new image until you re-key
 
 ```bash
 cd ~/migration-prep/fedora-cosmic-bluebuild
-bluebuild build recipes/recipe-framework.yml        # ~10–25 min; layers cached after the first run
-podman images localhost/fedora-cosmic-framework     # -> localhost/fedora-cosmic-framework:latest
+bluebuild build -B podman recipes/recipe-framework.yml   # ~10–25 min; layers cached after the first run
+podman images localhost/fedora-cosmic-framework          # -> localhost/fedora-cosmic-framework:latest
 ```
+
+`-B podman` matters: without it BlueBuild picks Docker whenever Docker is
+installed, the image lands in Docker's storage, and `install-atomic.sh` (which
+only looks in podman storage) stops with "image not found". To move an image
+that was built with Docker: `docker save localhost/fedora-cosmic-framework:latest | podman load`.
 
 Smoke-test the image before installing or pushing:
 
@@ -54,14 +59,15 @@ podman run --rm $IMG bootc --version
 podman run --rm $IMG ls -l /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/share/distrobox/distrobox.ini /etc/fedora-cosmic-atomic/restore-allowlist.txt
 podman run --rm $IMG rpm -q tailscale restic syncthing chezmoi age ghostty starship swtpm edk2-ovmf NetworkManager-openvpn fprintd
 podman run --rm $IMG cat /etc/systemd/logind.conf.d/10-lid.conf
-podman run --rm $IMG bash -c 'ls / | grep -vE "^(afs|bin|boot|dev|etc|home|lib|lib64|media|mnt|opt|proc|root|run|sbin|srv|sys|sysroot|tmp|usr|var)$"'   # must print nothing
+podman run --rm $IMG bash -c 'ls / | grep -vE "^(afs|bin|boot|dev|etc|home|lib|lib64|media|mnt|opt|ostree|proc|root|run|sbin|srv|sys|sysroot|tmp|usr|var)$"'   # must print nothing (/ostree -> sysroot/ostree comes from the base)
+podman run --rm $IMG stat -c '%a %n' /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf   # all 644
 ```
 
 ## Publish to GHCR (signed)
 
 ```bash
 cd ~/migration-prep/fedora-cosmic-bluebuild     # cosign.key must be in the cwd
-bluebuild build --push \
+bluebuild build -B podman --push \
   --registry ghcr.io --registry-namespace samwick07 \
   recipes/recipe-framework.yml
 ```
@@ -76,7 +82,7 @@ Both recipes at once:
 
 ```bash
 for r in recipe-framework.yml recipe-desktop.yml; do
-  bluebuild build --push --registry ghcr.io --registry-namespace samwick07 recipes/$r || break
+  bluebuild build -B podman --push --registry ghcr.io --registry-namespace samwick07 recipes/$r || break
 done
 ```
 

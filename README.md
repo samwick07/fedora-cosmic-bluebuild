@@ -14,7 +14,7 @@ Base: `quay.io/fedora-ostree-desktops/cosmic-atomic:44`. Bootloader: GRUB
 
 ```bash
 git clone git@github.com:samwick07/fedora-cosmic-bluebuild.git ~/migration-prep/fedora-cosmic-bluebuild && cd $_
-bluebuild build recipes/recipe-framework.yml                                    # docs/local-build.md
+bluebuild build -B podman recipes/recipe-framework.yml                             # docs/local-build.md
 sudo scripts/make-target-env.sh /dev/<disk> > scripts/targets/<disk>.env && $EDITOR scripts/targets/<disk>.env
 sudo scripts/install-atomic.sh scripts/targets/<disk>.env                       # reboot into it
 sudo post-install-setup.sh                                                      # restores ~ and everything else from the DAS
