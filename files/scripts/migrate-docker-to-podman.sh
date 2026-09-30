@@ -102,13 +102,15 @@ migrate_volumes() {
     log "Step 1: Migrate Docker volumes to Podman"
 
     for vol in "${VOLUMES[@]}"; do
-        # Strip the project prefix for a cleaner podman volume name
-        # open-webui-frmwrk_open-webui → open-webui
-        short_name="${vol#open-webui-frmwrk_}"
+        # The compose file uses named volumes (open-webui, searxng, tailscale-state).
+        # Docker prefixed them with the project name: open-webui-frmwrk_open-webui
+        # Podman compose with COMPOSE_PROJECT_NAME=open-webui-frmwrk will look for
+        # volumes named the same way: open-webui-frmwrk_open-webui
+        # So we keep the full Docker volume name as the Podman volume name.
 
         # Check if podman volume already exists
-        if podman volume exists "${short_name}" 2>/dev/null; then
-            skip "Podman volume '${short_name}'"
+        if podman volume exists "${vol}" 2>/dev/null; then
+            skip "Podman volume '${vol}'"
             continue
         fi
 
@@ -121,19 +123,20 @@ migrate_volumes() {
             continue
         fi
 
-        echo "  Migrating: ${vol} → ${short_name}"
+        echo "  Migrating: ${vol}"
 
-        # Create podman volume
-        podman volume create "${short_name}"
+        # Create podman volume with the same name Docker used
+        # (so podman compose with COMPOSE_PROJECT_NAME finds it)
+        podman volume create "${vol}"
 
         # Get the volume mountpoint
-        podman_mp=$(podman volume inspect "${short_name}" --format '{{.Mountpoint}}')
+        podman_mp=$(podman volume inspect "${vol}" --format '{{.Mountpoint}}')
 
         # Copy data
         sudo cp -a "${docker_path}/." "${podman_mp}/"
         sudo chown -R $(id -u):$(id -g) "${podman_mp}/"
 
-        ok "Migrated: ${short_name}"
+        ok "Migrated: ${vol}"
     done
 }
 
@@ -147,47 +150,26 @@ migrate_compose() {
         podman pull "${img}" && ok "Pulled: ${img}" || warn "Failed: ${img}"
     done
 
-    # Open WebUI + SearXNG compose
-    # The original compose file was lost. Recreate it from what we know:
-    # - open-webui: ghcr.io/open-webui/open-webui:main, port 3000, volume open-webui
-    # - searxng: searxng/searxng:latest, port 8080, volume searxng
-    # - tailscale: was in the compose but tailscale is now a host package — skip
-    COMPOSE_DIR="${HOME}/Services/open-webui"
-    mkdir -p "${COMPOSE_DIR}"
+    # The compose file is at ~/Documents/00_Projects/DockerProjects/Open-WebUI-frmwrk/
+    # (restored from restic backup of $HOME).
+    # It uses network_mode: host for open-webui, a tailscale sidecar container,
+    # and a searxng service with a bind-mounted ./searxng config directory.
+    COMPOSE_DIR="${HOME}/Documents/00_Projects/DockerProjects/Open-WebUI-frmwrk"
 
-    if [[ -f "${COMPOSE_DIR}/docker-compose.yml" ]]; then
-        skip "Compose file exists at ${COMPOSE_DIR}/docker-compose.yml"
-    else
-        cat > "${COMPOSE_DIR}/docker-compose.yml" << 'COMPOSE'
-services:
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:main
-    ports:
-      - "3000:8080"
-    volumes:
-      - open-webui:/app/backend/data
-    environment:
-      - WEBUI_AUTH=true
-    restart: unless-stopped
-
-  searxng:
-    image: searxng/searxng:latest
-    ports:
-      - "8080:8080"
-    volumes:
-      - searxng:/etc/searxng
-    restart: unless-stopped
-
-volumes:
-  open-webui:
-  searxng:
-COMPOSE
-        ok "Created compose file at ${COMPOSE_DIR}/docker-compose.yml"
-        echo ""
-        echo "  NOTE: Review and adjust ports, environment, and settings."
-        echo "        The original compose file was not found in backups."
-        echo "        This is a best-effort reconstruction."
+    if [[ ! -f "${COMPOSE_DIR}/docker-compose.yaml" ]]; then
+        fail "Compose file not found at ${COMPOSE_DIR}/docker-compose.yaml"
+        echo "  Restore from restic:"
+        echo "    sudo restic restore latest --target / --include '/home/<user>/Documents/00_Projects/DockerProjects/'"
+        return 1
     fi
+    ok "Compose file found: ${COMPOSE_DIR}/docker-compose.yaml"
+
+    # The compose file uses named volumes (open-webui, searxng, tailscale-state).
+    # Podman creates these under a different project prefix than Docker did.
+    # Step 1 already created podman volumes with clean names that match.
+    # If podman compose creates its own volumes, the data from step 1 won't be used.
+    # To ensure the migrated volumes are used, we set the project name to match.
+    export COMPOSE_PROJECT_NAME="open-webui-frmwrk"
 
     # Start services
     echo "  Starting services with podman compose..."
@@ -206,15 +188,29 @@ COMPOSE
         return 1
     fi
 
+    # Re-apply tailscale serve (same as start.sh does)
+    sleep 5
+    if ! podman exec open-webui-tailscale tailscale serve status 2>/dev/null | grep -q "8088"; then
+        echo "  Re-applying tailscale serve..."
+        podman exec open-webui-tailscale tailscale serve --bg --https 443 http://172.18.0.1:8088 2>/dev/null || \
+            warn "Could not apply tailscale serve (container may need a moment to start)"
+    fi
+
     ok "Services started"
     echo ""
-    echo "  Open WebUI:  http://localhost:3000"
-    echo "  SearXNG:     http://localhost:8080"
+    echo "  Open WebUI:  http://localhost:8088"
+    echo "  SearXNG:     http://localhost:8765"
+    echo "  Tailscale:   https://llm-frmwrk.<your-tailnet>.ts.net"
     echo ""
     echo "  Manage with:"
-    echo "    podman compose -f ${COMPOSE_DIR}/docker-compose.yml ps"
-    echo "    podman compose -f ${COMPOSE_DIR}/docker-compose.yml down"
-    echo "    podman compose -f ${COMPOSE_DIR}/docker-compose.yml up -d"
+    echo "    cd ${COMPOSE_DIR}"
+    echo "    podman compose ps"
+    echo "    podman compose logs -f"
+    echo "    podman compose down"
+    echo "    podman compose up -d"
+    echo ""
+    echo "  Or use the start.sh script (replaces 'docker' with 'podman'):"
+    echo "    cd ${COMPOSE_DIR} && sed 's/docker/podman/g' start.sh | bash"
 }
 
 # ─── Step 3: Switch Hermes to Podman ─────────────────────────────────
