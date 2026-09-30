@@ -320,6 +320,21 @@ for profile in "${HOME}/.var/app/org.mozilla.firefox/.mozilla/firefox"/*/; do
     configure_profile "${profile}" "Firefox flatpak (${profile_name})"
 done
 
+# 6. Grant flatpak browsers access to pcscd (smart card daemon)
+echo ""
+echo "[6/6] Granting flatpak browsers access to pcscd socket..."
+# Flatpak apps are sandboxed and can't access pcscd by default.
+# The --socket=pcsc flag exposes the pcscd comm socket to the sandbox.
+for app_id in org.mozilla.firefox io.github.zen_browser.zen; do
+    if flatpak list --columns=application 2>/dev/null | grep -q "${app_id}"; then
+        flatpak override --user --socket=pcsc "${app_id}" 2>/dev/null && \
+            echo "   ${app_id}: pcsc socket granted" || \
+            echo "   ${app_id}: override failed (may need manual: flatpak override --user --socket=pcsc ${app_id})"
+    else
+        echo "   ${app_id}: not installed (will override after flatpak install)"
+    fi
+done
+
 echo ""
 echo "=== CAC Setup Complete ==="
 echo ""
@@ -331,3 +346,4 @@ echo "  pkcs11-tool --list-objects --type cert"
 echo "  opensc-tool --list-readers"
 echo ""
 echo "Browsers: restart Firefox/Chrome/Zen for changes to take effect."
+echo "Flatpak browsers: the pcsc socket override is applied automatically."

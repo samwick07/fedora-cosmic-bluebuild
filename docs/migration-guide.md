@@ -222,6 +222,15 @@ opensc-tool --list-readers
 
 Restart Firefox and Zen browser for the PKCS#11 module to take effect.
 
+Flatpak browsers are sandboxed and can't access pcscd by default. The script
+automatically applies `flatpak override --user --socket=pcsc` to both Firefox
+and Zen. If a browser is installed after running setup-cac.sh, re-run the script
+or apply the override manually:
+```bash
+flatpak override --user --socket=pcsc org.mozilla.firefox
+flatpak override --user --socket=pcsc io.github.zen_browser.zen
+```
+
 The DoD cert bundle rotates approximately every 2 years. To update:
 1. Download the latest bundle from https://public.cyber.mil/pki-pke/
 2. Extract to ~/Documents/<private>/DoD PKI/unclass-certificates_pkcs7_DoD/
