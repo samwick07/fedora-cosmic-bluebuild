@@ -162,7 +162,38 @@ sudo RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWO
   restic restore latest --target / --include /etc/NetworkManager/
 ```
 
-## Step 11: Set Up Distrobox Containers
+## Step 11: Set Up CAC / Smart Card Reader
+
+The image bakes in `setup-cac.sh` at `/usr/local/bin/setup-cac.sh`. It configures:
+- pcscd smart card daemon (already enabled via systemd module)
+- OpenSC PKCS#11 module in p11-kit (system-wide)
+- DoD root CA certificates in system trust store (/etc/pki/ca-trust/)
+- DoD certificates in user NSS database (~/.pki/nssdb — used by Chrome)
+- OpenSC PKCS#11 module in Firefox and Zen browser NSS databases
+
+Prerequisite: DoD cert bundle must be restored from backup first (Step 10 restores
+~/Documents/ including the cert bundle at ~/Documents/<private>/DoD PKI/).
+
+```bash
+# Run the CAC setup script
+setup-cac.sh
+
+# Verify
+setup-cac.sh --check
+
+# Test with CAC inserted
+pkcs11-tool --list-objects --type cert
+opensc-tool --list-readers
+```
+
+Restart Firefox and Zen browser for the PKCS#11 module to take effect.
+
+The DoD cert bundle rotates approximately every 2 years. To update:
+1. Download the latest bundle from https://public.cyber.mil/pki-pke/
+2. Extract to ~/Documents/<private>/DoD PKI/unclass-certificates_pkcs7_DoD/
+3. Re-run: setup-cac.sh
+
+## Step 12: Set Up Distrobox Containers
 
 ```bash
 # Create all containers from the declarative .ini definitions
@@ -173,7 +204,7 @@ distrobox-list
 # Should show: fedora-ws, rocm, debian, ClaudeCode
 ```
 
-## Step 12: Restore VM Manager VMs
+## Step 13: Restore VM Manager VMs
 
 If you backed up the Win11VM XML and qcow2:
 
@@ -196,7 +227,7 @@ sudo RESTIC_REPOSITORY="/run/media/<user>/DAS/frmwrk-restic-repo" \
   restic restore latest --target / --include /var/lib/libvirt/vm-images/
 ```
 
-## Step 13: Install Flatpaks
+## Step 14: Install Flatpaks
 
 The default flatpaks are installed on first boot, but user-scope flatpaks
 may need manual install:
@@ -215,7 +246,7 @@ flatpak install flathub org.zotero.Zotero
 flatpak install flathub com.visualstudio.code
 ```
 
-## Step 14: Restore Hermes
+## Step 15: Restore Hermes
 
 If you backed up Hermes to the DAS:
 
@@ -239,6 +270,10 @@ After completing all steps, verify:
 - [ ] `rocminfo` works inside the rocm distrobox container
 - [ ] `tailscale status` shows connected
 - [ ] `virt-manager` opens and Win11VM is listed
+- [ ] CAC reader: `setup-cac.sh --check` shows all green
+- [ ] CAC reader: `opensc-tool --list-readers` detects card reader
+- [ ] CAC reader: `pkcs11-tool --list-objects --type cert` shows CAC certs when card inserted
+- [ ] Firefox prompts for CAC PIN when accessing DoD sites
 
 ## Rollback
 

@@ -67,9 +67,15 @@ modules:
         # ── Container runtime (needs podman on host) ──
         - distrobox               # creates containers that integrate with host
 
+        # ── CAC/Smart card (DoD PKI) ──
+        # opensc, pcsc-lite, pcsc-lite-ccid, p11-kit are in the base image.
+        # nss-tools is needed for certutil/modutil (browser cert management).
+        - nss-tools
+
         # ── Already in base image (do NOT re-install) ──
         # podman, toolbox, python3, nvme-cli, ntfs-3g, exfatprogs, cifs-utils
         # linux-firmware, mesa drivers, vulkan-loader, pipewire
+        # opensc, pcsc-lite, pcsc-lite-ccid, p11-kit, p11-kit-trust
 
     remove:
       packages:
@@ -84,6 +90,7 @@ modules:
       enabled:
         - tailscaled.service
         - libvirtd.service
+        - pcscd.socket
 
   # ─────────────────────────────────────────────
   # FLATPAKS (GUI apps — sandboxed, auto-updated)
@@ -118,6 +125,18 @@ modules:
   - type: script
     scripts:
       - enable-flathub.sh
+
+  # ─────────────────────────────────────────────
+  # CAC / SMART CARD READER SETUP SCRIPT
+  # ─────────────────────────────────────────────
+  # Bakes in the CAC setup script so it survives rebases/reinstalls.
+  # After first boot and cert bundle restore, run: setup-cac.sh
+  # Do NOT bake in the DoD certs themselves — they rotate every ~2 years.
+  # The script reads them from ~/Documents/<private>/DoD PKI/ (restic restore).
+  - type: files
+    files:
+      - source: scripts/setup-cac.sh
+        destination: /usr/local/bin/setup-cac.sh
 
   # ─────────────────────────────────────────────
   # DISTROBOX CONTAINER DEFINITIONS
