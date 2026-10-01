@@ -23,7 +23,7 @@ post-install-setup.sh --check
 
 Everything needed is in this repo (system), `github.com/samwick07/dotfiles`
 (user config, via chezmoi), the DAS (restic repo `frmwrk-restic-repo`, LUKS
-UUID `xxxxxxxx-…`), and two secrets you must hold outside all of them: the
+UUID = `DAS_LUKS_UUID` in `scripts/targets/site.env`), and two secrets you must hold outside all of them: the
 restic passphrase and `cosign.key`. Full runbook: **`docs/migration-guide.md`**;
 the model behind it: **`docs/clean-room.md`**.
 

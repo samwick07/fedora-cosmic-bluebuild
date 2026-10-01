@@ -7,7 +7,8 @@
 #
 # Generic patterns always apply (CI has no site.env); with
 # scripts/targets/site.env present its exact values are checked too
-# (SITE_USER as a word, DAS_LUKS_UUID, PROTECTED_LUKS_UUIDS).
+# (SITE_USER as a word), plus every UUID in scripts/targets/*.env and its
+# 8-character prefix.
 # Exit 0 = clean, 1 = leak found.
 #
 set -euo pipefail
@@ -22,8 +23,13 @@ FIXED=()
 if [[ -f scripts/targets/site.env ]]; then
     # shellcheck disable=SC1091
     source scripts/targets/site.env
-    for v in ${DAS_LUKS_UUID:-} ${PROTECTED_LUKS_UUIDS:-}; do FIXED+=(-e "$v"); done
 fi
+# Every real UUID known locally (site.env + the gitignored target files), and
+# its first 8 characters: docs tend to abbreviate ("xxxxxxxx-…").
+KNOWN_UUIDS=$(cat scripts/targets/*.env 2>/dev/null \
+    | grep -oiE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9A-F]{4}-[0-9A-F]{4}\b' \
+    | grep -v '^00000000-' | sort -u || true)
+for v in $KNOWN_UUIDS; do FIXED+=(-e "$v"); [[ ${#v} -gt 9 ]] && FIXED+=(-e "${v:0:8}"); done
 
 scan_repo() {
     local hits
@@ -40,7 +46,7 @@ scan_image() {
     local img="$1" dirs="/usr/bin /usr/share/distrobox /etc/fedora-cosmic-atomic /etc/profile.d /etc/environment.d /etc/containers /etc/systemd /usr/lib/systemd/system /usr/share/fedora-cosmic-atomic"
     local pat="$GENERIC"
     [[ -n "${SITE_USER:-}" ]] && pat+="|\\b${SITE_USER}\\b"
-    local v; for v in ${DAS_LUKS_UUID:-} ${PROTECTED_LUKS_UUIDS:-}; do pat+="|$v"; done
+    local v; for v in $KNOWN_UUIDS; do pat+="|$v"; [[ ${#v} -gt 9 ]] && pat+="|${v:0:8}"; done
     # Only files this repo puts into the image; base packages may legitimately
     # contain UUIDs (systemd units, policy files).
     local ours="/usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac /usr/share/distrobox/distrobox.ini /etc/fedora-cosmic-atomic /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf"
