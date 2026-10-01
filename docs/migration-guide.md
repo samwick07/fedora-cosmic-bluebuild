@@ -48,8 +48,11 @@ See `docs/bootloader.md` for why systemd-boot is not used.
    the restored key). Test it on the Workstation first:
    `chezmoi init --source ~/migration-prep/dotfiles --dry-run --verbose` shows
    exactly what would change without touching anything.
-6. **Syncthing on the desktop: pause every shared folder** for the duration of
-   the rebuild (Actions → Pause per folder). Resume after step 6 finishes.
+6. **Syncthing on dsktp: pause every shared folder** before the install.
+   Test drive: keep them paused for the WHOLE test, until the 4TB Workstation is
+   booted again (the test system has the same device identity). Real 4TB run:
+   resume after `post-install-setup.sh` step 6, which asks you to confirm the pause
+   before it enables Syncthing.
 
 ---
 
@@ -189,7 +192,10 @@ Validation checklist for the test drive (all must pass before the 4TB run):
 - [ ] `post-install-setup.sh --check` is all green
 - [ ] `chezmoi doctor` clean; `brew bundle check --global` says satisfied; `code` opens from the app menu (exported from the `dev` box)
 - [ ] `distrobox enter rocm -- rocminfo | grep gfx` shows gfx1103 (with `HSA_OVERRIDE_GFX_VERSION=11.0.0` exported)
-- [ ] Syncthing GUI shows the desktop connected and every folder "Up to Date" with **no** `.sync-conflict` files created by the rebuild
+- [ ] Syncthing (test drive): keep every folder **paused on dsktp for the whole test**, then run
+      `~/migration-prep/fedora-cosmic-bluebuild/scripts/test/syncthing-2tb-check.sh` — it asks you to confirm the
+      pause, pauses every local folder, proves frmwrk connects to dsktp (direct over Tailscale), then stops and
+      disables Syncthing so the 4TB can go back in safely. Delete the script once it passes.
 - [ ] **Full Win11 VM test** (step 5 restores the real 512 GB disk — do not skip it on the test drive):
     - [ ] `virsh -c qemu:///system start Win11VM`; boots to the Windows login, no BitLocker recovery prompt (swtpm + NVRAM restored)
     - [ ] Secure Boot + TPM 2.0 present in Windows (`tpm.msc`, `msinfo32` → Secure Boot State: On)
@@ -208,7 +214,7 @@ Then the 4TB:
 2. Boot the **test drive** (not the Workstation). From there the 4TB is just
    another disk, so `install-atomic.sh`'s "running system" guard does not fire.
 3. `sudo scripts/make-target-env.sh /dev/nvme0n1 > scripts/targets/4tb-primary.env`,
-   set `SKIP_FINALIZE=0`, and **edit `PROTECTED_LUKS_UUIDS`**: remove the two
+   set `SKIP_FINALIZE=0` and `TEST_INSTALL=0`, and **edit `PROTECTED_LUKS_UUIDS`**: remove the two
    4TB UUIDs, add the test drive's root LUKS UUID.
 4. `sudo scripts/install-atomic.sh scripts/targets/4tb-primary.env` — this
    reformats the 4TB's btrfs root. The ESP, `/boot`, and the LUKS containers

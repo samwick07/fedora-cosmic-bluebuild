@@ -74,6 +74,11 @@ PROTECTED_LUKS_UUIDS="00000000-0000-0000-0000-000000000000 00000000-0000-0000-00
 CREATE_USER="<user>"
 CREATE_USER_UID=1000
 
+# 1 = this is a TEST install (the 2TB drive): Syncthing is never enabled
+# automatically; scripts/test/syncthing-2tb-check.sh does a paused-only
+# connection test instead. Set 0 for the real 4TB install.
+TEST_INSTALL=1
+
 # 1 = skip fstrim/readonly-remount (needed on USB/DAS-attached disks that
 # reject TRIM). 0 for the internal NVMe.
 SKIP_FINALIZE=1

@@ -165,6 +165,7 @@ cat <<EOF
     Image           $IMAGE
     Updates from    $TARGET_IMGREF
     Bootloader      grub (BLS entries on /boot, shim+grub on the ESP)
+    Test install    $([[ "${TEST_INSTALL:-0}" == 1 ]] && echo "yes (Syncthing stays off; use scripts/test/syncthing-2tb-check.sh)" || echo "no (real install)")
     Finalize        $([[ "$SKIP_FINALIZE" == 1 ]] && echo "skipped (no fstrim — USB/DAS disk)" || echo "yes")
 EOF
 if [[ "$ASSUME_YES" != 1 ]]; then
@@ -247,6 +248,7 @@ info "fstab:";    sed 's/^/      /' "$DEPLOY/etc/fstab"
 # Keep a copy of the target definition with the OS for the next reinstall.
 mkdir -p "$DEPLOY/etc/fedora-cosmic-atomic"
 cp "$ENV_FILE" "$DEPLOY/etc/fedora-cosmic-atomic/install-target.env"
+chmod 0644 "$DEPLOY/etc/fedora-cosmic-atomic/install-target.env"   # UUIDs only; user-level scripts read TEST_INSTALL
 
 # ─── 9. User account ───────────────────────────────────────────────────
 # bootc install creates NO users (Anaconda would have). Create the login user
