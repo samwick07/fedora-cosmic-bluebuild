@@ -80,3 +80,9 @@ modules:
   - type: initramfs
 
   - type: signing
+
+  # Local builds sign for localhost/<image> (BlueBuild CLI bug); point the
+  # policy at the published name so bootc verifies updates.
+  - type: script
+    scripts:
+      - fix-signing-registry.sh
