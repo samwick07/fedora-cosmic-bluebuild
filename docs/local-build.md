@@ -61,6 +61,9 @@ podman run --rm $IMG rpm -q tailscale restic syncthing chezmoi age ghostty stars
 podman run --rm $IMG cat /etc/systemd/logind.conf.d/10-lid.conf
 podman run --rm $IMG bash -c 'ls / | grep -vE "^(afs|bin|boot|dev|etc|home|lib|lib64|media|mnt|opt|ostree|proc|root|run|sbin|srv|sys|sysroot|tmp|usr|var)$"'   # must print nothing (/ostree -> sysroot/ostree comes from the base)
 podman run --rm $IMG stat -c '%a %n' /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf   # all 644
+# Leak check: the image is public, so no tailnet hostname may be baked in.
+podman run --rm $IMG sh -c 'grep -rIlE "ts\.net" /usr/bin /usr/share/distrobox /etc/fedora-cosmic-atomic /etc/profile.d /etc/environment.d 2>/dev/null' ; echo "exit=$? (1 = clean)"
+git grep -nE "ts\.net"   # must print nothing
 ```
 
 ## Publish to GHCR (signed)

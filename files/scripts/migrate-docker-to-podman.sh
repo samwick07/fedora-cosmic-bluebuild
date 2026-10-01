@@ -200,7 +200,10 @@ migrate_compose() {
     echo ""
     echo "  Open WebUI:  http://localhost:8088"
     echo "  SearXNG:     http://localhost:8765"
-    echo "  Tailscale:   https://llm-frmwrk.<your-tailnet>.ts.net"
+    # Look the tailnet up at run time so its name stays out of git and the image.
+    # "|| ts_suffix=" keeps set -e from aborting when tailscale is down/logged out.
+    ts_suffix=$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("MagicDNSSuffix",""))' 2>/dev/null) || ts_suffix=""
+    echo "  Tailscale:   https://llm-frmwrk.${ts_suffix:-<your MagicDNS suffix>}"
     echo ""
     echo "  Manage with:"
     echo "    cd ${COMPOSE_DIR}"
