@@ -148,6 +148,7 @@ step2_restore() {
     while IFS= read -r path; do
         path="${path%%#*}"; path="${path// /}"
         [[ -z "${path}" ]] && continue
+        # shellcheck disable=SC2088  # a literal "~/" prefix in the allowlist, expanded here
         [[ "${path}" == "~/"* ]] && path="${USER_HOME}/${path#"~/"}"   # entries are home-relative
         if [[ -e "${path}" && -n "$(ls -A "${path}" 2>/dev/null)" ]]; then
             skip "${path}"

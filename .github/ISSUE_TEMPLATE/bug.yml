@@ -1,0 +1,42 @@
+name: Bug in the image or scripts
+description: Something in the image, the install/restore scripts or CI does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This repository is public.** Do not paste user names, host names, disk UUIDs, paths under
+        /home, tailnet names or IPs. Use `cosmic-report --public "<what you were doing>"` — it replaces them.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [install, first-boot, restore, hibernation, cac, vm, distrobox, network, ci, docs, other]
+    validations:
+      required: true
+  - type: input
+    id: image
+    attributes:
+      label: Image version
+      description: "`bootc status` → image digest or tag (e.g. 6dce8b0-44)"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps / commands
+      render: shell
+  - type: textarea
+    id: report
+    attributes:
+      label: cosmic-report --public output (relevant part)
+      render: text
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Blocks the 4TB run?
+      options: ["no", "yes — label it blocker"]

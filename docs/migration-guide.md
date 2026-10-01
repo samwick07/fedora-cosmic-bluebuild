@@ -164,7 +164,10 @@ target `.env` and `site.env` to `/etc/fedora-cosmic-atomic/` on the new system.
    cat /proc/cmdline                # rd.luks.uuid=… ×2, resume=UUID=…
    swapon --show                    # the 96G partition
    findmnt /boot /boot/efi
+   hostnamectl hostname             # frmwrk-test on the test drive (TEST_INSTALL=1), frmwrk on the real one
+   cosmic-report "first boot"       # state snapshot -> ~/migration-prep/logs/ (exists after Phase 4 step 2; else ~/cosmic-reports)
    ```
+   Start the day's entry in `JOURNAL.md` (see "Recording what happens" below).
 5. If the DAS is not auto-mounted, click it in Files (unlock) so it is at
    `/run/media/$USER/DAS`. Otherwise step 1 of the next script unlocks it.
 
@@ -232,8 +235,21 @@ Validation checklist for the test drive (all must pass before the 4TB run):
     - [ ] CAC into Windows: `sudo win11-cac attach` → in Windows `certutil -scinfo` lists the card and certs → a DoD site works in Edge → `sudo win11-cac detach` → on the host `opensc-tool --list-readers` sees the reader again
 - [ ] CAC: `opensc-tool --list-readers`, PIN prompt on a DoD site in native Firefox; note whether the flatpak browsers work
 - [ ] `sudo bootc upgrade` pulls from GHCR without auth errors (package is public)
-- [ ] Run the backup script from the new OS once; `restic snapshots` shows it
+- [ ] Run the backup script from the test drive once; `restic snapshots --host frmwrk-test` shows it, tagged `test`.
+      It is its own restic host, so it never becomes the parent of, or prunes, the Workstation's snapshots.
+      When the test is over: `sudo restic -r $DAS/frmwrk-restic-repo forget --tag test --prune`
+- [ ] `prepare-disk.sh --selftest` passes (the new-drive path works on this image; docs/disaster-recovery.md)
 - [ ] Use it for a few days. Every fix goes into this repo (system) or the dotfiles repo (user) → rebuild / `chezmoi update`
+
+### Recording what happens
+
+- **Private journal** — `dotfiles/.migration-prep/JOURNAL.md`: dated entries (what you did, what
+  happened, exact error, fix + commit). `cosmic-report "<what you were doing>"` saves the machine state next to it.
+- **Bugs in the image or the scripts** — a GitHub issue each (template asks for `cosmic-report --public`,
+  which replaces user/host/UUIDs/tailnet). The fixing commit closes it: `Fixes #n`.
+- **Standing caveats** — `docs/known-issues.md`. **Distilled lessons** — `dotfiles/.migration-prep/LESSONS.md`.
+- **Gate for the 4TB run:** every checklist item above passed and is in the journal, no open issue
+  labelled `blocker`, LESSONS.md reviewed.
 
 Then the 4TB:
 
@@ -244,15 +260,15 @@ Then the 4TB:
    Workstation. From there the 4TB is just another disk, so
    `install-atomic.sh`'s "running system" guard does not fire, and since the
    4TB is internal there is no swap afterwards — unplug the test drive.
-3. `sudo scripts/make-target-env.sh /dev/nvme0n1 > scripts/targets/4tb-primary.env`,
-   set `SKIP_FINALIZE=0` and `TEST_INSTALL=0`, and **edit `PROTECTED_LUKS_UUIDS`**: remove the two
-   4TB UUIDs, add the test drive's root LUKS UUID.
-4. `sudo scripts/install-atomic.sh scripts/targets/4tb-primary.env` — this
-   reformats the 4TB's btrfs root. The ESP, `/boot`, and the LUKS containers
-   (same passphrases) are kept.
+3. `sudo make-target-env.sh /dev/nvme0n1 > ~/4tb-primary.env` (shipped in the image; it reads
+   `/etc/fedora-cosmic-atomic/site.env`), set `SKIP_FINALIZE=0` and `TEST_INSTALL=0`, and **edit
+   `PROTECTED_LUKS_UUIDS`**: remove the two 4TB UUIDs, add the test drive's root LUKS UUID.
+4. `sudo install-atomic.sh ~/4tb-primary.env` — this reformats the 4TB's btrfs root. The ESP,
+   `/boot`, and the LUKS containers (same passphrases) are kept. Hostname: `frmwrk`.
 5. Reboot into the 4TB, Phase 3 + 4 again (the restore is the slow part).
 6. Keep the test drive as a bootable spare until the 4TB has survived a week
-   and one `bootc upgrade`.
+   and one `bootc upgrade` — and afterwards as the **rescue drive**: it boots from USB and carries
+   `prepare-disk.sh`, `make-target-env.sh` and `install-atomic.sh` (docs/disaster-recovery.md).
 
 The desktop follows the same runbook with `recipe-dsktp.yml` — planned only
 after the laptop has proven the workflow for several months.

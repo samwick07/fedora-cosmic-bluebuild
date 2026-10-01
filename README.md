@@ -39,8 +39,10 @@ files/
   scripts/                  build-time scripts (configure-*.sh) and host scripts (-> /usr/bin)
   distrobox/distrobox.ini   `distrobox assemble` manifest: dev, claude, rocm (-> /usr/share/distrobox)
 scripts/
-  make-target-env.sh        read a disk's UUIDs into scripts/targets/<name>.env
-  install-atomic.sh         bootc install to-filesystem onto a pre-made LUKS layout (UUID-driven, guarded)
+  prepare-disk.sh  -> files/scripts/  blank/new disk -> ESP, /boot, LUKS swap, LUKS root (guarded; --selftest)
+  make-target-env.sh -> files/scripts/  read a disk's UUIDs into a target .env
+  install-atomic.sh -> files/scripts/  bootc install to-filesystem onto that layout (UUID-driven, guarded)
+                            (all three also ship in the image as /usr/bin/*.sh)
   targets/example.env       template; real targets are gitignored
   targets/site.example.env  template for site.env (gitignored): user, DAS UUID/label, protected disks —
                             the ONLY place personal values live; installed as /etc/fedora-cosmic-atomic/site.env
@@ -56,6 +58,8 @@ docs/
   migration-guide.md        install → first boot → restore → validate → 4TB → rollback
   local-build.md            build, smoke-test, sign, push, switch, version bump
   hibernation-setup.md      what must be true for suspend-then-hibernate, and how to check
+  disaster-recovery.md      new/replacement drive: rescue boot -> prepare-disk -> install -> restore
+  known-issues.md           open verifications and lasting caveats (bugs -> GitHub issues)
   bootloader.md             GRUB; why systemd-boot was dropped and how to try it later
 .github/workflows/build.yml nightly if base or repo changed; smoke tests gate the push (scripts/ci-should-build.sh)
 cosign.pub                  image verification key (private key: cosign.key, gitignored)
@@ -71,6 +75,8 @@ cosign.pub                  image verification key (private key: cosign.key, git
 | `/usr/bin/enable-hibernation.sh` | Verify/repair resume karg, LUKS karg, swap, SELinux module. `--check`. |
 | `/usr/bin/enable-vfio.sh` | Desktop: bind one NVMe controller to vfio-pci **by PCI address** (both T700s share an ID). |
 | `/usr/bin/win11-cac` | Hand the USB CAC reader to `Win11VM` and back (`attach`/`detach`/`status`); stops host pcscd while the VM has it. |
+| `/usr/bin/prepare-disk.sh`, `make-target-env.sh`, `install-atomic.sh` | New/replacement drive and reinstall tooling (`docs/disaster-recovery.md`); read `/etc/fedora-cosmic-atomic/site.env`. |
+| `/usr/bin/cosmic-report` | State snapshot for the journal or an issue; `--public` replaces user/host/UUIDs/tailnet. |
 | `/usr/bin/migrate-docker-to-podman.sh` | One-time: Open WebUI / SearXNG volumes and compose stack from Docker to rootless podman. |
 
 ## Four layers (clean-room)

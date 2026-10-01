@@ -43,6 +43,12 @@ export RESTIC_PASSWORD_FILE="$PASSFILE"
 # there. Unset, those patterns would collapse to /... — hence the check above.
 export BACKUP_HOME="$USER_HOME"
 
+# A test install (install-atomic.sh TEST_INSTALL=1, hostname <name>-test) backs
+# up as its own restic host; tag it too so `restic forget --tag test --prune`
+# removes the lot once the test is over.
+TEST_TAG=""
+grep -qs "^TEST_INSTALL=1" /etc/fedora-cosmic-atomic/install-target.env && TEST_TAG="test"
+
 echo "=== Framework backup started: $(date) ===" | tee -a "$LOGFILE"
 
 # Clear a stale lock left by an interrupted run (only if no restic is running).
@@ -58,6 +64,7 @@ restic backup \
     --exclude-file "$EXCLUDES" \
     --tag frmwrk \
     --tag "$(hostname)" \
+    ${TEST_TAG:+--tag "$TEST_TAG"} \
     "$USER_HOME" \
     /var/lib/libvirt/vm-images/ \
     /var/lib/libvirt/images/ \

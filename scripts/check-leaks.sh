@@ -49,7 +49,7 @@ scan_image() {
     local v; for v in $KNOWN_UUIDS; do pat+="|$v"; [[ ${#v} -gt 9 ]] && pat+="|${v:0:8}"; done
     # Only files this repo puts into the image; base packages may legitimately
     # contain UUIDs (systemd units, policy files).
-    local ours="/usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac /usr/share/distrobox/distrobox.ini /etc/fedora-cosmic-atomic /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf"
+    local ours="/usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report /usr/share/distrobox/distrobox.ini /etc/fedora-cosmic-atomic /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf"
     local hits
     hits=$("${CTR:-podman}" run --rm "$img" sh -c "grep -rnIE '$pat' $ours 2>/dev/null; grep -rlIE 'ts\.net|Military' $dirs 2>/dev/null" | grep -vE "$ALLOW" || true)
     report "$hits"

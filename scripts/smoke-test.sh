@@ -9,7 +9,7 @@
 # CTR=docker to use docker instead of podman. Needs network (DoD PKI fetch).
 #
 set -uo pipefail
-cd "$(dirname "$(readlink -f "$0")")/.."
+cd "$(dirname "$(readlink -f "$0")")/.." || exit 2
 
 IMG="${1:?usage: smoke-test.sh IMAGE}"
 CTR="${CTR:-podman}"
@@ -27,12 +27,12 @@ variant=$(run sh -c '. /usr/lib/os-release; echo "$VARIANT_ID"')
 echo "== $IMG (VARIANT_ID=$variant)"
 
 check "bootc present"            run bootc --version
-check "shipped scripts executable" run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh; do test -x "$f" || { echo "not executable: $f"; exit 1; }; done'
+check "shipped scripts executable" run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report; do test -x "$f" || { echo "not executable: $f"; exit 1; }; done'
 check "shipped data readable (644)" run sh -c 'for f in /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt; do [ "$(stat -c %a "$f")" = 644 ] || { stat -c "%a %n" "$f"; exit 1; }; done'
 check "packages installed"       run rpm -q tailscale restic syncthing chezmoi age ghostty starship swtpm edk2-ovmf NetworkManager-openvpn openssl nss-tools distrobox
 check "base fallbacks kept"      run rpm -q firefox toolbox
 check "no stray top-level dirs"  run bash -c 'x=$(ls / | grep -vE "^(afs|bin|boot|dev|etc|home|lib|lib64|media|mnt|opt|ostree|proc|root|run|sbin|srv|sys|sysroot|tmp|usr|var)$"); [ -z "$x" ] || { echo "$x"; exit 1; }'
-check "shell scripts parse"      run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh; do bash -n "$f" || exit 1; done'
+check "shell scripts parse"      run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report; do bash -n "$f" || exit 1; done'
 if [[ "$variant" == frmwrk ]]; then
     check "lid -> suspend-then-hibernate" run grep -q '^HandleLidSwitch=suspend-then-hibernate' /etc/systemd/logind.conf.d/10-lid.conf
     check "fprintd installed"     run rpm -q fprintd
