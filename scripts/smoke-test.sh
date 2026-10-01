@@ -38,7 +38,13 @@ if [[ "$variant" == frmwrk ]]; then
     check "fprintd installed"     run rpm -q fprintd
 fi
 # Signing policy must name the published image (fix-signing-registry.sh).
-check "signing policy for ghcr.io/samwick07/$NAME" run sh -c "grep -q '\"ghcr.io/samwick07/$NAME\"' /etc/containers/policy.json && ! grep -q '\"localhost/' /etc/containers/policy.json && test -f /etc/containers/registries.d/ghcr.io-samwick07-$NAME.yaml && test -f /etc/pki/containers/$NAME.pub"
+# Checked by content: the registries.d file name differs between builds.
+check "signing policy for ghcr.io/samwick07/$NAME" run sh -c "
+    grep -q '\"ghcr.io/samwick07/$NAME\"' /etc/containers/policy.json || { echo 'policy.json: no entry for ghcr.io/samwick07/$NAME'; exit 1; }
+    ! grep -q '\"localhost/' /etc/containers/policy.json || { echo 'policy.json: localhost/ entry left'; exit 1; }
+    grep -lq 'ghcr.io/samwick07/$NAME:' /etc/containers/registries.d/*.yaml || { echo 'registries.d: no sigstore config for the image'; exit 1; }
+    grep -rq 'use-sigstore-attachments: true' /etc/containers/registries.d/ || { echo 'registries.d: sigstore attachments off'; exit 1; }
+    test -f /etc/pki/containers/$NAME.pub || { echo 'missing /etc/pki/containers/$NAME.pub'; exit 1; }"
 check "image pubkey == repo cosign.pub" bash -c "cmp <($CTR run --rm '$IMG' cat /etc/pki/containers/$NAME.pub) cosign.pub"
 # CAC: the public DoD bundle downloads and verifies (pinned root, signed sums).
 check "setup-cac.sh --fetch (DoD PKI verified)" run setup-cac.sh --fetch

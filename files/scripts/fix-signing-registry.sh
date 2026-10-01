@@ -17,7 +17,7 @@ for f in "$REGD"/localhost-*.yaml; do
     [[ -e "$f" ]] || continue
     name="${f#"$REGD"/localhost-}"; name="${name%.yaml}"
     sed -i "s#localhost/${name}:#${PUBLISHED}/${name}:#" "$f"
-    mv "$f" "$REGD/${PUBLISHED//\//-}-${name}.yaml"
+    mv "$f" "$REGD/${PUBLISHED##*/}-${name}.yaml"     # the signing module's own naming (CI builds)
     sed -i "s#\"localhost/${name}\"#\"${PUBLISHED}/${name}\"#" "$POLICY"
     echo "signing policy: localhost/${name} -> ${PUBLISHED}/${name}"
 done
