@@ -36,9 +36,10 @@ then — last — the Syncthing device identity. Everything else stays in the
 backup. When you miss something:
 
 ```bash
-sudo restic -r /run/media/<user>/DAS/frmwrk-restic-repo ls latest /home/<user>/.config | less
-sudo restic -r /run/media/<user>/DAS/frmwrk-restic-repo restore latest --target / --include /home/<user>/.config/darktable
-sudo chown -R <user>: /home/<user>/.config/darktable
+R=/run/media/$USER/DAS/frmwrk-restic-repo
+sudo restic -r $R ls latest /home/$USER/.config | less
+sudo restic -r $R restore latest --target / --include /home/$USER/.config/darktable
+sudo chown -R $USER: /home/$USER/.config/darktable
 ```
 
 Then decide: is it config (→ `chezmoi add`), state the app should own (leave

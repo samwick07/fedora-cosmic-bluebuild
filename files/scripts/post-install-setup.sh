@@ -7,7 +7,7 @@
 #   restic  (DAS)            -> DATA, by allowlist : this script, step 2
 #   chezmoi (dotfiles repo)  -> user config + brew + distrobox + flatpak overrides : step 6
 # Nothing else from the old ~ is restored. Pull anything you miss later with
-#   sudo restic restore latest --target / --include /home/<user>/<path>
+#   sudo restic -r <repo> restore latest --target / --include ~/<path>
 #
 # Shipped in the image at /usr/bin/post-install-setup.sh. Idempotent; completed
 # steps are recorded in /var/lib/post-install-setup/.
@@ -18,19 +18,28 @@
 #   post-install-setup.sh --list | --check
 #
 # PREREQUISITES:
-#   - Booted into the custom image, logged in as <user>, network up
+#   - Booted into the custom image, logged in as SITE_USER, network up
+#   - /etc/fedora-cosmic-atomic/site.env (copied there by install-atomic.sh from
+#     scripts/targets/site.env): SITE_USER, DAS_LUKS_UUID, DAS_LABEL, RESTIC_REPO_DIR
 #   - DAS attached (unlocked or not — step 1 handles it)
 #   - You know the restic repository passphrase (the password file is inside
 #     the backup, so the first restore prompts for it)
 #
 set -euo pipefail
 
-# ─── Constants ────────────────────────────────────────────────────────
-TARGET_USER="<user>"
-USER_HOME="/home/${TARGET_USER}"          # never $HOME: under sudo that is /root
-DAS_LUKS_UUID="00000000-0000-0000-0000-000000000000"
-DAS_MOUNT="/run/media/${TARGET_USER}/DAS"
-RESTIC_REPO="${DAS_MOUNT}/frmwrk-restic-repo"
+# ─── Site values ──────────────────────────────────────────────────────
+SITE_ENV="${SITE_ENV:-/etc/fedora-cosmic-atomic/site.env}"
+# shellcheck disable=SC1090
+[[ -r "${SITE_ENV}" ]] && source "${SITE_ENV}"
+TARGET_USER="${SITE_USER:-${SUDO_USER:-}}"
+[[ -n "${TARGET_USER}" && "${TARGET_USER}" != root ]] || { echo "ERROR: no SITE_USER in ${SITE_ENV} and not run via sudo"; exit 1; }
+# /home/<user>, never $HOME (under sudo that is /root) and not getent's /var/home:
+# restic snapshots from the Workstation store /home/<user>/..., and on Atomic
+# /home -> var/home, so this one path works for --include and on disk.
+USER_HOME="/home/${TARGET_USER}"
+DAS_LUKS_UUID="${DAS_LUKS_UUID:-}"
+DAS_MOUNT="/run/media/${TARGET_USER}/${DAS_LABEL:-DAS}"
+RESTIC_REPO="${DAS_MOUNT}/${RESTIC_REPO_DIR:-frmwrk-restic-repo}"
 RESTIC_PASSFILE="${USER_HOME}/.restic/frmwrk-repo.pass"
 ALLOWLIST="${ALLOWLIST:-/etc/fedora-cosmic-atomic/restore-allowlist.txt}"
 DOTFILES_REPO="${DOTFILES_REPO:-git@github.com:samwick07/dotfiles.git}"
@@ -107,6 +116,7 @@ step1_mount_das() {
     if mountpoint -q "${DAS_MOUNT}"; then
         skip "DAS already mounted"
     else
+        [[ -n "${DAS_LUKS_UUID}" ]] || { fail "DAS_LUKS_UUID not set in ${SITE_ENV} — mount the DAS at ${DAS_MOUNT} yourself and rerun"; exit 1; }
         local das_part="/dev/disk/by-uuid/${DAS_LUKS_UUID}" dm="/dev/mapper/luks-${DAS_LUKS_UUID}"
         [[ -e "${das_part}" ]] || { fail "DAS LUKS partition (UUID ${DAS_LUKS_UUID}) not found. Is the DAS connected?"; exit 1; }
         [[ -e "${dm}" ]] || { echo "  Unlocking DAS (passphrase prompt)..."; cryptsetup open "$(readlink -f "${das_part}")" "luks-${DAS_LUKS_UUID}"; }
@@ -138,6 +148,7 @@ step2_restore() {
     while IFS= read -r path; do
         path="${path%%#*}"; path="${path// /}"
         [[ -z "${path}" ]] && continue
+        [[ "${path}" == "~/"* ]] && path="${USER_HOME}/${path#"~/"}"   # entries are home-relative
         if [[ -e "${path}" && -n "$(ls -A "${path}" 2>/dev/null)" ]]; then
             skip "${path}"
             continue
@@ -181,8 +192,8 @@ step3_hibernation() {
 # ─── Step 4: CAC system half ─────────────────────────────────────────
 step4_cac() {
     log "Step 4: CAC — pcscd + DoD roots (system trust)"
-    [[ -d "${USER_HOME}/Documents/<private>" ]] || { fail "DoD cert bundle not restored yet (step 2)"; return 1; }
-    SUDO_USER="${TARGET_USER}" /usr/bin/setup-cac.sh --system
+    # setup-cac.sh downloads + verifies the public DoD PKI bundle (needs network).
+    SUDO_USER="${TARGET_USER}" /usr/bin/setup-cac.sh --system || { fail "setup-cac.sh --system failed (network?)"; return 1; }
     mark_step_done "step4"
 }
 
@@ -278,8 +289,8 @@ Next:
   3. Syncthing: open http://127.0.0.1:8384 — the desktop should reconnect within a minute
   4. Test hibernation:  systemctl hibernate
   5. Anything you miss from the old machine:
-       sudo restic -r ${RESTIC_REPO} ls latest /home/<user> | less
-       sudo restic -r ${RESTIC_REPO} restore latest --target / --include /home/<user>/<path>
+       sudo restic -r ${RESTIC_REPO} ls latest ${USER_HOME} | less
+       sudo restic -r ${RESTIC_REPO} restore latest --target / --include ${USER_HOME}/<path>
 EOF
 }
 main "$@"

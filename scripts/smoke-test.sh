@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# smoke-test.sh — checks a built image before it is installed or pushed.
+# Used by hand (docs/local-build.md) and by the CI workflow, which only pushes
+# when this passes.
+#
+#   scripts/smoke-test.sh IMAGE        e.g. ghcr.io/samwick07/fedora-cosmic-frmwrk:latest_linux_amd64
+#
+# CTR=docker to use docker instead of podman. Needs network (DoD PKI fetch).
+#
+set -uo pipefail
+cd "$(dirname "$(readlink -f "$0")")/.."
+
+IMG="${1:?usage: smoke-test.sh IMAGE}"
+CTR="${CTR:-podman}"
+NAME="${IMG##*/}"; NAME="${NAME%%:*}"            # fedora-cosmic-frmwrk
+FAILED=0
+
+run() { "$CTR" run --rm "$IMG" "$@"; }
+check() {  # description, command...
+    local desc="$1"; shift
+    if out=$("$@" 2>&1); then printf 'ok    %s\n' "$desc"
+    else printf 'FAIL  %s\n%s\n' "$desc" "$(sed 's/^/      /' <<<"$out")"; FAILED=1; fi
+}
+
+variant=$(run sh -c '. /usr/lib/os-release; echo "$VARIANT_ID"')
+echo "== $IMG (VARIANT_ID=$variant)"
+
+check "bootc present"            run bootc --version
+check "shipped scripts executable" run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh; do test -x "$f" || { echo "not executable: $f"; exit 1; }; done'
+check "shipped data readable (644)" run sh -c 'for f in /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt; do [ "$(stat -c %a "$f")" = 644 ] || { stat -c "%a %n" "$f"; exit 1; }; done'
+check "packages installed"       run rpm -q tailscale restic syncthing chezmoi age ghostty starship swtpm edk2-ovmf NetworkManager-openvpn openssl nss-tools distrobox
+check "base fallbacks kept"      run rpm -q firefox toolbox
+check "no stray top-level dirs"  run bash -c 'x=$(ls / | grep -vE "^(afs|bin|boot|dev|etc|home|lib|lib64|media|mnt|opt|ostree|proc|root|run|sbin|srv|sys|sysroot|tmp|usr|var)$"); [ -z "$x" ] || { echo "$x"; exit 1; }'
+check "shell scripts parse"      run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh; do bash -n "$f" || exit 1; done'
+if [[ "$variant" == frmwrk ]]; then
+    check "lid -> suspend-then-hibernate" run grep -q '^HandleLidSwitch=suspend-then-hibernate' /etc/systemd/logind.conf.d/10-lid.conf
+    check "fprintd installed"     run rpm -q fprintd
+fi
+# Signing policy must name the published image (fix-signing-registry.sh).
+check "signing policy for ghcr.io/samwick07/$NAME" run sh -c "grep -q '\"ghcr.io/samwick07/$NAME\"' /etc/containers/policy.json && ! grep -q '\"localhost/' /etc/containers/policy.json && test -f /etc/containers/registries.d/ghcr.io-samwick07-$NAME.yaml && test -f /etc/pki/containers/$NAME.pub"
+check "image pubkey == repo cosign.pub" bash -c "cmp <($CTR run --rm '$IMG' cat /etc/pki/containers/$NAME.pub) cosign.pub"
+# CAC: the public DoD bundle downloads and verifies (pinned root, signed sums).
+check "setup-cac.sh --fetch (DoD PKI verified)" run setup-cac.sh --fetch
+# Public repo + public image: no personal values.
+check "leak check: repo"         scripts/check-leaks.sh
+check "leak check: image"        env CTR="$CTR" scripts/check-leaks.sh --image "$IMG"
+
+if [[ "$FAILED" == 0 ]]; then echo "== smoke test PASSED"; else echo "== smoke test FAILED"; exit 1; fi

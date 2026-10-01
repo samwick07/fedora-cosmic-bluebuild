@@ -9,9 +9,13 @@ Two disks are involved during the migration:
 
 | Disk | Role | LUKS UUIDs (protected by `install-atomic.sh`) |
 | --- | --- | --- |
-| 4TB NVMe (internal) | Fedora 44 Workstation — the current OS. Untouched until Phase 5. | root `00000000-0000-0000-0000-000000000000`, swap `00000000-0000-0000-0000-000000000000` |
+| 4TB NVMe (internal) | Fedora 44 Workstation — the current OS. Untouched until Phase 5. | root + swap: `PROTECTED_LUKS_UUIDS` in `scripts/targets/site.env` |
 | 2TB NVMe in the DAS enclosure | Test target. Gets wiped and reinstalled freely. | (see `scripts/targets/2tb-test.env` after generating it) |
-| DAS data disk | restic repos, backup scripts, hermes backup. Never a target. | `00000000-0000-0000-0000-000000000000` |
+| DAS data disk | restic repos, backup scripts, hermes backup. Never a target. | `DAS_LUKS_UUID` (also in `PROTECTED_LUKS_UUIDS`) |
+
+Personal values (user, DAS UUID/label, protected disks) live only in the
+gitignored `scripts/targets/site.env` (template `site.example.env`). Below,
+`DAS=/run/media/$USER/DAS` (the DAS mount) and `~` is the login user's home.
 
 Bootloader: **GRUB** (Fedora Atomic default, BLS entries on the ext4 `/boot`).
 See `docs/bootloader.md` for why systemd-boot is not used.
@@ -23,18 +27,19 @@ See `docs/bootloader.md` for why systemd-boot is not used.
 1. **Backup is fresh and verified.** On the Workstation:
    ```bash
    # sudo resets the environment, so pass repo + password file as flags, not RESTIC_* variables
-   r() { sudo restic -r /run/media/<user>/DAS/frmwrk-restic-repo --password-file ~/.restic/frmwrk-repo.pass "$@"; }
+   DAS=/run/media/$USER/DAS
+   r() { sudo restic -r $DAS/frmwrk-restic-repo --password-file ~/.restic/frmwrk-repo.pass "$@"; }
    r unlock
    r snapshots --latest 3
    r check --read-data-subset=10%           # ~1 h on USB; do the full --read-data once before Phase 5
    # dry-run restore of something small, to prove passphrase + syntax
-   r restore latest --target /tmp/rt --include /home/<user>/.ssh && ls -la /tmp/rt/home/<user>/.ssh && sudo rm -rf /tmp/rt
+   r restore latest --target /tmp/rt --include /home/$USER/.ssh && ls -la /tmp/rt/home/$USER/.ssh && sudo rm -rf /tmp/rt
    ```
    If the backup script on the DAS is older than `backup/frmwrk_backup_command.sh`
    in this repo, copy the repo versions over and run a backup:
    ```bash
-   cp backup/frmwrk_backup_command.sh backup/frmwrk-restic-excludes /run/media/<user>/DAS/
-   /run/media/<user>/DAS/frmwrk_backup_command.sh     # asks for the sudo password once, then runs as root
+   cp backup/frmwrk_backup_command.sh backup/frmwrk-restic-excludes $DAS/
+   $DAS/frmwrk_backup_command.sh     # asks for the sudo password once, then runs as root
    ```
 2. **Secrets off the machine.** Copy to a USB stick / password manager:
    `~/.restic/frmwrk-repo.pass` (and know the passphrase itself), `cosign.key`,
@@ -119,8 +124,8 @@ Behind the scenes it does: `mkfs.btrfs` → mount root, `/boot`, `/boot/efi` →
 `bootc install to-filesystem --bootloader grub --boot-mount-spec UUID=<boot>
 --karg rd.luks.uuid=<root> --karg rd.luks.uuid=<swap> --karg resume=UUID=<swap-fs>`
 → writes `/etc/crypttab`, `/boot`, `/boot/efi` and swap lines into the new
-deployment's `/etc/fstab` → creates the `<user>` user + passwords → copies the
-target `.env` to `/etc/fedora-cosmic-atomic/install-target.env` on the new system.
+deployment's `/etc/fstab` → creates the `SITE_USER` user + passwords → copies the
+target `.env` and `site.env` to `/etc/fedora-cosmic-atomic/` on the new system.
 
 ---
 
@@ -149,7 +154,7 @@ target `.env` to `/etc/fedora-cosmic-atomic/install-target.env` on the new syste
    4. Both LUKS containers prompt (once if the passphrases match). These are
       the containers that were already on the disk; the install keeps their
       passphrases.
-2. Log in as **`<user>`** with the password you typed during the install
+2. Log in as your user (**`SITE_USER`**) with the password you typed during the install
    (the script created the user, uid 1000, in `wheel` and `libvirt`, and gave
    root the same password). There is no first-run wizard on the bootc path.
 3. Connect to Wi-Fi. Open the terminal (COSMIC Terminal; Ghostty is in the image too).
@@ -161,7 +166,7 @@ target `.env` to `/etc/fedora-cosmic-atomic/install-target.env` on the new syste
    findmnt /boot /boot/efi
    ```
 5. If the DAS is not auto-mounted, click it in Files (unlock) so it is at
-   `/run/media/<user>/DAS`. Otherwise step 1 of the next script unlocks it.
+   `/run/media/$USER/DAS`. Otherwise step 1 of the next script unlocks it.
 
 ---
 
@@ -272,7 +277,7 @@ after the laptop has proven the workflow for several months.
 ## Anaconda alternative (if you ever prefer the ISO)
 
 `Fedora-COSMIC-Atomic-ostree-x86_64-44-1.7.iso` (fedoraproject.org → Atomic
-Desktops → COSMIC). Custom partitioning with the layout above, user `<user>`.
+Desktops → COSMIC). Custom partitioning with the layout above, your usual user name.
 After first boot:
 
 ```bash

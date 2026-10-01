@@ -159,7 +159,7 @@ migrate_compose() {
     if [[ ! -f "${COMPOSE_DIR}/docker-compose.yaml" ]]; then
         fail "Compose file not found at ${COMPOSE_DIR}/docker-compose.yaml"
         echo "  Restore from restic:"
-        echo "    sudo restic restore latest --target / --include '/home/<user>/Documents/00_Projects/DockerProjects/'"
+        echo "    sudo restic restore latest --target / --include '/home/${USER}/Documents/00_Projects/DockerProjects/'"
         return 1
     fi
     ok "Compose file found: ${COMPOSE_DIR}/docker-compose.yaml"

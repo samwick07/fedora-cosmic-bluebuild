@@ -51,23 +51,18 @@ installed, the image lands in Docker's storage, and `install-atomic.sh` (which
 only looks in podman storage) stops with "image not found". To move an image
 that was built with Docker: `docker save localhost/fedora-cosmic-frmwrk:latest | podman load`.
 
-Smoke-test the image before installing or pushing:
+Smoke-test the image before installing or pushing (the same script gates the
+CI push; it needs network for the DoD PKI check):
 
 ```bash
-IMG=localhost/fedora-cosmic-frmwrk:latest
-podman run --rm $IMG bootc --version
-podman run --rm $IMG ls -l /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/share/distrobox/distrobox.ini /etc/fedora-cosmic-atomic/restore-allowlist.txt
-podman run --rm $IMG rpm -q tailscale restic syncthing chezmoi age ghostty starship swtpm edk2-ovmf NetworkManager-openvpn fprintd
-podman run --rm $IMG cat /etc/systemd/logind.conf.d/10-lid.conf
-podman run --rm $IMG bash -c 'ls / | grep -vE "^(afs|bin|boot|dev|etc|home|lib|lib64|media|mnt|opt|ostree|proc|root|run|sbin|srv|sys|sysroot|tmp|usr|var)$"'   # must print nothing (/ostree -> sysroot/ostree comes from the base)
-podman run --rm $IMG stat -c '%a %n' /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf   # all 644
-podman run --rm $IMG rpm -q firefox toolbox   # both kept from the base as fallbacks
-# Signing policy must name the published image, not localhost/ (fix-signing-registry.sh)
-podman run --rm $IMG sh -c 'grep -q "\"ghcr.io/samwick07/fedora-cosmic-frmwrk\"" /etc/containers/policy.json && ! grep -q "\"localhost/" /etc/containers/policy.json && ls /etc/containers/registries.d/ghcr.io-samwick07-fedora-cosmic-frmwrk.yaml' && echo "signing policy OK"
-# Leak check: the image is public, so no tailnet hostname may be baked in.
-podman run --rm $IMG sh -c 'grep -rIlE "ts\.net" /usr/bin /usr/share/distrobox /etc/fedora-cosmic-atomic /etc/profile.d /etc/environment.d 2>/dev/null' ; echo "exit=$? (1 = clean)"
-git grep -nE "ts\.net"   # must print nothing
+scripts/smoke-test.sh ghcr.io/samwick07/fedora-cosmic-frmwrk:latest_linux_amd64
 ```
+
+It checks bootc, the shipped scripts (executable, parse), file modes, the
+package set, the base fallbacks (firefox, toolbox), the lid/hibernation config
+(frmwrk), the signing policy (published name, key = `cosign.pub`), the DoD PKI
+download + verification, and runs `scripts/check-leaks.sh` on the repo and the
+image (with `scripts/targets/site.env`'s exact values when that file exists).
 
 ## Publish to GHCR (signed)
 

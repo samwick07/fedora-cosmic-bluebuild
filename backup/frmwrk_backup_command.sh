@@ -1,14 +1,15 @@
 #!/bin/bash
 #
 # frmwrk_backup_command.sh — Restic backup for Framework 13 AMD
-# Lives on the DAS at /run/media/<user>/DAS/frmwrk_backup_command.sh; this
-# copy in the repo is the source of truth — copy it there after editing.
+# Lives on the DAS next to the repo it writes to; this copy in the repo is the
+# source of truth — copy it there after editing. Every path is relative to the
+# script's own location, so nothing here names the user or the mount point.
 #
 # Backs up: home, libvirt VMs + config + UEFI/TPM state, network + sudoers
 #           config, tailscale identity, BLS entries, the BlueBuild repo.
-# Repository: /run/media/<user>/DAS/frmwrk-restic-repo/
+# Repository: <DAS>/frmwrk-restic-repo/   (excludes: <DAS>/frmwrk-restic-excludes)
 #
-# Usage: ./frmwrk_backup_command.sh            (as <user>; re-runs itself under sudo)
+# Usage: <DAS>/frmwrk_backup_command.sh       (as your user; re-runs itself under sudo)
 #
 # Root is needed for the libvirt/etc paths. The script asks for the sudo
 # password once and then runs entirely as root, so a multi-hour run never
@@ -21,12 +22,16 @@ set -euo pipefail
 # Under sudo $HOME is /root; back up the invoking user's home.
 [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]] \
     || { echo "ERROR: run as your normal user (the script elevates itself)"; exit 1; }
-USER_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+# /home/<user>, not getent's /var/home on Atomic: keeps snapshot paths (and the
+# parent snapshot) identical across the Workstation and the new OS.
+USER_HOME="/home/$SUDO_USER"
+[[ -d "$USER_HOME" ]] || { echo "ERROR: $USER_HOME not found"; exit 1; }
 
-REPO="/run/media/<user>/DAS/frmwrk-restic-repo"
-EXCLUDES="/run/media/<user>/DAS/frmwrk-restic-excludes"
+DAS="$(dirname "$(readlink -f "$0")")"
+REPO="$DAS/frmwrk-restic-repo"
+EXCLUDES="$DAS/frmwrk-restic-excludes"
 PASSFILE="$USER_HOME/.restic/frmwrk-repo.pass"
-LOGFILE="/run/media/<user>/DAS/frmwrk-backup.log"
+LOGFILE="$DAS/frmwrk-backup.log"
 
 [[ -d "$REPO" ]]    || { echo "ERROR: restic repo not found at $REPO — is the DAS mounted?"; exit 1; }
 [[ -f "$PASSFILE" ]] || { echo "ERROR: password file not found at $PASSFILE"; exit 1; }
@@ -34,6 +39,9 @@ LOGFILE="/run/media/<user>/DAS/frmwrk-backup.log"
 
 export RESTIC_REPOSITORY="$REPO"
 export RESTIC_PASSWORD_FILE="$PASSFILE"
+# The exclude file uses $BACKUP_HOME/...; restic expands environment variables
+# there. Unset, those patterns would collapse to /... — hence the check above.
+export BACKUP_HOME="$USER_HOME"
 
 echo "=== Framework backup started: $(date) ===" | tee -a "$LOGFILE"
 

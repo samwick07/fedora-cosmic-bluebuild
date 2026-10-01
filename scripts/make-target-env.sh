@@ -18,6 +18,12 @@
 #
 set -euo pipefail
 
+# Site values (protected disks, user) from scripts/targets/site.env.
+site="${SITE_FILE:-$(dirname "$(readlink -f "$0")")/targets/site.env}"
+[[ -f "$site" ]] || { echo "missing $site (copy scripts/targets/site.example.env)" >&2; exit 1; }
+# shellcheck disable=SC1090
+source "$site"
+
 disk="${1:?usage: make-target-env.sh /dev/DISK}"
 disk=$(readlink -f "$disk")
 [[ -b "$disk" ]] || { echo "not a block device: $disk" >&2; exit 1; }
@@ -63,16 +69,16 @@ SWAP_LUKS_UUID="${swap_part:+$(uuid "$swap_part")}"    # ${swap_part:-none}  ${s
 IMAGE="ghcr.io/samwick07/fedora-cosmic-frmwrk:latest"   # the pushed, signed build (also in local podman storage)
 TARGET_IMGREF="ghcr.io/samwick07/fedora-cosmic-frmwrk:latest"
 
-# LUKS UUIDs that must NEVER be on the target disk. Defaults: the 4TB
-# Workstation root + swap, and the DAS. install-atomic.sh refuses to run if any
-# of them lives on the target disk. For the final 4TB run you must therefore
-# edit this line by hand and remove the two 4TB UUIDs — that friction is the
-# point. Add the test drive's ROOT_LUKS_UUID here at the same time.
-PROTECTED_LUKS_UUIDS="00000000-0000-0000-0000-000000000000 00000000-0000-0000-0000-000000000000 00000000-0000-0000-0000-000000000000"
+# LUKS UUIDs that must NEVER be on the target disk (from site.env: the current
+# OS root + swap, and the DAS). install-atomic.sh refuses to run if any of them
+# lives on the target disk. For the final run onto the current OS disk you must
+# therefore edit this line by hand and remove that disk's UUIDs — that friction
+# is the point. Add the test drive's ROOT_LUKS_UUID here at the same time.
+PROTECTED_LUKS_UUIDS="$PROTECTED_LUKS_UUIDS"
 
 # Login user to create in the new system (bootc install creates none).
-CREATE_USER="<user>"
-CREATE_USER_UID=1000
+CREATE_USER="$SITE_USER"
+CREATE_USER_UID=${SITE_UID:-1000}
 
 # 1 = this is a TEST install (the 2TB drive): Syncthing is never enabled
 # automatically; scripts/test/syncthing-2tb-check.sh does a paused-only

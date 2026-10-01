@@ -93,6 +93,7 @@ modules:
         # ── CAC/Smart card (DoD PKI) ──
         # opensc, pcsc-lite, pcsc-lite-ccid, p11-kit are in the base image.
         - nss-tools                    # certutil/modutil for browser cert management
+        - openssl                      # setup-cac.sh: verify + split the DoD PKCS#7 bundle (base has only the libs)
 
         # ── SELinux tooling ──
         - checkpolicy                  # checkmodule, so configure-hibernation.sh can compile its policy at build time

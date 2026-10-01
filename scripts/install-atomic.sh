@@ -7,7 +7,8 @@
 #   sudo scripts/install-atomic.sh scripts/targets/<name>.env [--yes]
 #
 # The .env (generate it with scripts/make-target-env.sh) names the target by
-# UUID only. Device letters (/dev/sdb, /dev/nvme1n1) are never trusted: they
+# UUID only. Site values (user, DAS, protected disks) come from site.env next to
+# it (SITE_FILE overrides); the target .env may override any of them. Device letters (/dev/sdb, /dev/nvme1n1) are never trusted: they
 # change with what is plugged in.
 #
 # What it does
@@ -37,7 +38,11 @@ ASSUME_YES=0
 
 [[ $EUID -eq 0 ]] || { echo "ERROR: run with sudo" >&2; exit 1; }
 [[ -f "$ENV_FILE" ]] || { echo "ERROR: $ENV_FILE not found" >&2; exit 1; }
+SITE_FILE="${SITE_FILE:-$(dirname "$ENV_FILE")/site.env}"
+[[ -f "$SITE_FILE" ]] || { echo "ERROR: $SITE_FILE not found (copy scripts/targets/site.example.env)" >&2; exit 1; }
 
+# shellcheck disable=SC1090
+source "$SITE_FILE"
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 
@@ -249,12 +254,16 @@ info "fstab:";    sed 's/^/      /' "$DEPLOY/etc/fstab"
 mkdir -p "$DEPLOY/etc/fedora-cosmic-atomic"
 cp "$ENV_FILE" "$DEPLOY/etc/fedora-cosmic-atomic/install-target.env"
 chmod 0644 "$DEPLOY/etc/fedora-cosmic-atomic/install-target.env"   # UUIDs only; user-level scripts read TEST_INSTALL
+# Site values for post-install-setup.sh and the other shipped scripts; must
+# exist before first boot (post-install runs before chezmoi brings anything).
+cp "$SITE_FILE" "$DEPLOY/etc/fedora-cosmic-atomic/site.env"
+chmod 0644 "$DEPLOY/etc/fedora-cosmic-atomic/site.env"
 
 # ─── 9. User account ───────────────────────────────────────────────────
 # bootc install creates NO users (Anaconda would have). Create the login user
 # and set root's password directly in the new deployment.
-CREATE_USER="${CREATE_USER:-<user>}"
-CREATE_USER_UID="${CREATE_USER_UID:-1000}"
+CREATE_USER="${CREATE_USER:-${SITE_USER:?SITE_USER not set in $SITE_FILE}}"
+CREATE_USER_UID="${CREATE_USER_UID:-${SITE_UID:-1000}}"
 STATEROOT="$MOUNT_ROOT/ostree/deploy/default"       # its var/ is the booted system's /var
 if [[ -n "$CREATE_USER" ]] && ! grep -q "^$CREATE_USER:" "$DEPLOY/etc/passwd"; then
     log "Creating user $CREATE_USER (uid $CREATE_USER_UID) and setting passwords"

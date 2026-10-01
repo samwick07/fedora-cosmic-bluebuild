@@ -42,10 +42,14 @@ scripts/
   make-target-env.sh        read a disk's UUIDs into scripts/targets/<name>.env
   install-atomic.sh         bootc install to-filesystem onto a pre-made LUKS layout (UUID-driven, guarded)
   targets/example.env       template; real targets are gitignored
+  targets/site.example.env  template for site.env (gitignored): user, DAS UUID/label, protected disks —
+                            the ONLY place personal values live; installed as /etc/fedora-cosmic-atomic/site.env
+  smoke-test.sh             checks a built image (gates the CI push)
+  check-leaks.sh            fails if personal values appear in the repo or an image
   reregister-win11vm.sh     recreate the Win11VM domain if its XML is ever lost
 backup/
   frmwrk_backup_command.sh  restic backup (source of truth for the copy on the DAS)
-  frmwrk-restic-excludes    anchored exclude list
+  frmwrk-restic-excludes    anchored exclude list ($BACKUP_HOME/… — the script exports it)
 docs/
   clean-room.md             the four layers, software lanes, restore allowlist, Syncthing rules
   migration-guide.md        install → first boot → restore → validate → 4TB → rollback
@@ -61,7 +65,7 @@ cosign.pub                  image verification key (private key: cosign.key, git
 | Path on the installed system | Purpose |
 | --- | --- |
 | `/usr/bin/post-install-setup.sh` | Root half of a rebuild: DAS, allowlist restore, hibernation check, CAC system trust, VMs, then `chezmoi init --apply`, Tailscale. `--list`, `--check`, `--step N`. |
-| `/usr/bin/setup-cac.sh` | DoD PKI + OpenSC for pcscd, system trust, NSS/browser profiles. `--system` (root), `--user` (chezmoi), `--check`. |
+| `/usr/bin/setup-cac.sh` | DoD PKI (downloaded from public.cyber.mil, verified against pinned DoD roots, cached) + OpenSC for pcscd, system trust, NSS/browser profiles. `--system` (root), `--user` (chezmoi), `--check`, `--fetch`, `--refresh`. |
 | `/usr/share/distrobox/distrobox.ini` | `distrobox assemble create --file …` — `dev` (Fedora, VS Code/Antigravity exported), `claude` (Ubuntu), `rocm`. |
 | `/usr/bin/enable-hibernation.sh` | Verify/repair resume karg, LUKS karg, swap, SELinux module. `--check`. |
 | `/usr/bin/enable-vfio.sh` | Desktop: bind one NVMe controller to vfio-pci **by PCI address** (both T700s share an ID). |
@@ -87,7 +91,7 @@ cosign.pub                  image verification key (private key: cosign.key, git
 | Add something that needs the kernel/systemd | `recipes/common-modules.yml` (or one recipe) → build → push |
 | Change a dotfile | `chezmoi edit …` → `chezmoi apply` → commit/push; `chezmoi update` on the other machine |
 | Fedora 44 → 45 | `image-version: 45` in both recipes → build → test on the test drive → push (`docs/local-build.md`) |
-| Backup | `/run/media/<user>/DAS/frmwrk_backup_command.sh` |
+| Backup | `/run/media/$USER/DAS/frmwrk_backup_command.sh` (asks for sudo once) |
 | Health | `post-install-setup.sh --check`, `setup-cac.sh --check`, `sudo enable-hibernation.sh --check` |
 
 ## Design decisions
