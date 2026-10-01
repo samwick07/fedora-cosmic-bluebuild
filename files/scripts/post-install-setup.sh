@@ -267,7 +267,7 @@ main() {
     echo "============================================"
     echo "  Fedora Cosmic Atomic — Post-Install Setup"
     echo "============================================"
-    if ! bootc status 2>/dev/null | grep -qE 'fedora-cosmic-(framework|desktop)'; then
+    if ! bootc status 2>/dev/null | grep -qE 'fedora-cosmic-(frmwrk|dsktp)'; then
         warn "bootc status does not show the custom image. Some shipped scripts may be missing."
         read -rp "  Continue anyway? (y/N) " response; [[ "${response,,}" == "y" ]] || exit 0
     fi

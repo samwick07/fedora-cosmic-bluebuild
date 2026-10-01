@@ -41,7 +41,7 @@ See `docs/bootloader.md` for why systemd-boot is not used.
 3. **Secure Boot OFF** in the Framework firmware (F2 → Security). Required for
    hibernation (kernel lockdown) and for the custom image.
 4. **Image built and pushed.** `docs/local-build.md`. You need
-   `localhost/fedora-cosmic-framework:latest` in podman and the same image on
+   `localhost/fedora-cosmic-frmwrk:latest` in podman and the same image on
    GHCR (public) for updates.
 5. **Dotfiles repo exists.** Push `~/migration-prep/dotfiles` to
    `github.com/samwick07/dotfiles` (private is fine — step 6 clones over SSH with
@@ -129,7 +129,7 @@ target `.env` to `/etc/fedora-cosmic-atomic/install-target.env` on the new syste
 3. Connect to Wi-Fi. Open the terminal (COSMIC Terminal; Ghostty is in the image too).
 4. Sanity:
    ```bash
-   bootc status                     # image: ghcr.io/samwick07/fedora-cosmic-framework:latest
+   bootc status                     # image: ghcr.io/samwick07/fedora-cosmic-frmwrk:latest
    cat /proc/cmdline                # rd.luks.uuid=… ×2, resume=UUID=…
    swapon --show                    # the 96G partition
    findmnt /boot /boot/efi
@@ -190,7 +190,12 @@ Validation checklist for the test drive (all must pass before the 4TB run):
 - [ ] `chezmoi doctor` clean; `brew bundle check --global` says satisfied; `code` opens from the app menu (exported from the `dev` box)
 - [ ] `distrobox enter rocm -- rocminfo | grep gfx` shows gfx1103 (with `HSA_OVERRIDE_GFX_VERSION=11.0.0` exported)
 - [ ] Syncthing GUI shows the desktop connected and every folder "Up to Date" with **no** `.sync-conflict` files created by the rebuild
-- [ ] `virsh -c qemu:///system start Win11VM` boots to the Windows login
+- [ ] **Full Win11 VM test** (step 5 restores the real 512 GB disk — do not skip it on the test drive):
+    - [ ] `virsh -c qemu:///system start Win11VM`; boots to the Windows login, no BitLocker recovery prompt (swtpm + NVRAM restored)
+    - [ ] Secure Boot + TPM 2.0 present in Windows (`tpm.msc`, `msinfo32` → Secure Boot State: On)
+    - [ ] virtio: disk on the Red Hat VirtIO SCSI/block driver, network on the VirtIO Ethernet adapter, internet works
+    - [ ] Display/input over SPICE in virt-manager; clipboard if spice-vdagent is installed in Windows
+    - [ ] CAC into Windows: `sudo win11-cac attach` → in Windows `certutil -scinfo` lists the card and certs → a DoD site works in Edge → `sudo win11-cac detach` → on the host `opensc-tool --list-readers` sees the reader again
 - [ ] CAC: `opensc-tool --list-readers`, PIN prompt on a DoD site in native Firefox; note whether the flatpak browsers work
 - [ ] `sudo bootc upgrade` pulls from GHCR without auth errors (package is public)
 - [ ] Run the backup script from the new OS once; `restic snapshots` shows it
@@ -212,7 +217,7 @@ Then the 4TB:
 6. Keep the test drive as a bootable spare until the 4TB has survived a week
    and one `bootc upgrade`.
 
-The desktop follows the same runbook with `recipe-desktop.yml` — planned only
+The desktop follows the same runbook with `recipe-dsktp.yml` — planned only
 after the laptop has proven the workflow for several months.
 
 ---
@@ -223,7 +228,7 @@ after the laptop has proven the workflow for several months.
 | --- | --- |
 | New deployment does not boot | GRUB menu → previous entry. Then `sudo bootc rollback` to make it permanent. |
 | Whole disk unbootable | Boot the other disk (test drive ⇄ 4TB) via F12; reinstall the broken one with `install-atomic.sh` (5 min) and rerun `post-install-setup.sh`. |
-| Image on GHCR broken | `sudo bootc switch --transport containers-storage localhost/fedora-cosmic-framework:latest` with a known-good local build, or `bootc rollback`. |
+| Image on GHCR broken | `sudo bootc switch --transport containers-storage localhost/fedora-cosmic-frmwrk:latest` with a known-good local build, or `bootc rollback`. |
 | Lost `cosign.key` | Build/push unsigned, `bootc switch ghcr.io/…` (unsigned transport is the default). Regenerate keys, commit new `cosign.pub`, rebuild, rebase signed later. |
 | Lost restic password file | The passphrase itself is enough: `restic -r <repo> restore …` prompts for it. |
 | Forgot which UUIDs a disk was installed with | `/etc/fedora-cosmic-atomic/install-target.env` on that system. |
@@ -239,8 +244,8 @@ Desktops → COSMIC). Custom partitioning with the layout above, user `<user>`.
 After first boot:
 
 ```bash
-sudo rpm-ostree rebase ostree-unverified-registry:ghcr.io/samwick07/fedora-cosmic-framework:latest && sudo systemctl reboot
-sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-framework:latest && sudo systemctl reboot   # optional, after a signed push
+sudo rpm-ostree rebase ostree-unverified-registry:ghcr.io/samwick07/fedora-cosmic-frmwrk:latest && sudo systemctl reboot
+sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-frmwrk:latest && sudo systemctl reboot   # optional, after a signed push
 sudo enable-hibernation.sh          # adds resume=; Anaconda already wrote crypttab/fstab
 sudo post-install-setup.sh
 ```

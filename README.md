@@ -4,8 +4,8 @@ One BlueBuild repository, two images, built **locally** and pushed to GHCR:
 
 | Image | Machine | Recipe |
 | --- | --- | --- |
-| `ghcr.io/samwick07/fedora-cosmic-framework:latest` | Framework 13 AMD (Ryzen 7040U, 780M) — laptop, hibernation, fingerprint | `recipes/recipe-framework.yml` |
-| `ghcr.io/samwick07/fedora-cosmic-desktop:latest` | ROG STRIX X870-I, Ryzen 9 9950X, RX 9070 XT — VFIO passthrough of a 2TB NVMe to a Win11 VM | `recipes/recipe-desktop.yml` |
+| `ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` | Framework 13 AMD (Ryzen 7040U, 780M) — laptop, hibernation, fingerprint | `recipes/recipe-frmwrk.yml` |
+| `ghcr.io/samwick07/fedora-cosmic-dsktp:latest` | ROG STRIX X870-I, Ryzen 9 9950X, RX 9070 XT — VFIO passthrough of a 2TB NVMe to a Win11 VM | `recipes/recipe-dsktp.yml` |
 
 Base: `quay.io/fedora-ostree-desktops/cosmic-atomic:44`. Bootloader: GRUB
 (`docs/bootloader.md`). Shared content: `recipes/common-modules.yml`.
@@ -14,7 +14,7 @@ Base: `quay.io/fedora-ostree-desktops/cosmic-atomic:44`. Bootloader: GRUB
 
 ```bash
 git clone git@github.com:samwick07/fedora-cosmic-bluebuild.git ~/migration-prep/fedora-cosmic-bluebuild && cd $_
-bluebuild build -B podman recipes/recipe-framework.yml                             # docs/local-build.md
+bluebuild build -B podman recipes/recipe-frmwrk.yml                             # docs/local-build.md
 sudo scripts/make-target-env.sh /dev/<disk> > scripts/targets/<disk>.env && $EDITOR scripts/targets/<disk>.env
 sudo scripts/install-atomic.sh scripts/targets/<disk>.env                       # reboot into it
 sudo post-install-setup.sh                                                      # restores ~ and everything else from the DAS
@@ -32,8 +32,8 @@ the model behind it: **`docs/clean-room.md`**.
 ```
 recipes/
   common-modules.yml        packages, services, flatpaks, scripts shipped to /usr/bin — shared
-  recipe-framework.yml      + fprintd/iio-sensor-proxy, ROCm env, hibernation drop-ins + SELinux
-  recipe-desktop.yml        + IOMMU kargs, ROCm env, enable-vfio.sh
+  recipe-frmwrk.yml      + fprintd/iio-sensor-proxy, ROCm env, hibernation drop-ins + SELinux
+  recipe-dsktp.yml        + IOMMU kargs, ROCm env, enable-vfio.sh
 files/
   etc/                      static config -> /etc, incl. fedora-cosmic-atomic/restore-allowlist.txt
   scripts/                  build-time scripts (configure-*.sh) and host scripts (-> /usr/bin)
@@ -66,6 +66,7 @@ cosign.pub                  image verification key (private key: cosign.key, git
 | `/usr/share/distrobox/distrobox.ini` | `distrobox assemble create --file …` — `dev` (Fedora, VS Code/Antigravity exported), `claude` (Ubuntu), `rocm`. |
 | `/usr/bin/enable-hibernation.sh` | Verify/repair resume karg, LUKS karg, swap, SELinux module. `--check`. |
 | `/usr/bin/enable-vfio.sh` | Desktop: bind one NVMe controller to vfio-pci **by PCI address** (both T700s share an ID). |
+| `/usr/bin/win11-cac` | Hand the USB CAC reader to `Win11VM` and back (`attach`/`detach`/`status`); stops host pcscd while the VM has it. |
 | `/usr/bin/migrate-docker-to-podman.sh` | One-time: Open WebUI / SearXNG volumes and compose stack from Docker to rootless podman. |
 
 ## Four layers (clean-room)
@@ -97,7 +98,7 @@ cosign.pub                  image verification key (private key: cosign.key, git
 - **Nothing under `/usr/local`, `/opt`, `/home`** in the image — those are `/var` on ostree and are not updated after the first install.
 - **Modular libvirt** (`virtqemud.socket` &c.), not `libvirtd.service` — they conflict.
 - **Clean-room, not port-over** — data is restored by allowlist; config is declared in chezmoi; apps are re-chosen per lane (flatpak / Homebrew / distrobox / image). See `docs/clean-room.md`.
-- **Desktop deferred** — `recipe-desktop.yml` builds, but the desktop migrates only after the laptop workflow has held up for months.
+- **Desktop deferred** — `recipe-dsktp.yml` builds, but the desktop migrates only after the laptop workflow has held up for months.
 - **Local builds** — GitHub Actions is `workflow_dispatch` only.
 - **VFIO by PCI address** — `vfio-pci.ids=` would capture the boot NVMe on the desktop.
 

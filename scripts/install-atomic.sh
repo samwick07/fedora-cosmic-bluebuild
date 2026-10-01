@@ -191,7 +191,7 @@ if ! podman image exists "$IMAGE"; then
         info "copying from $SUDO_USER's podman storage (no download)"
         sudo -u "$SUDO_USER" podman save "$IMAGE" --format oci-archive | podman load
     else
-        die "image $IMAGE not found. Build it: bluebuild build -B podman recipes/recipe-framework.yml"
+        die "image $IMAGE not found. Build it: bluebuild build -B podman recipes/recipe-frmwrk.yml"
     fi
 fi
 podman run --rm "$IMAGE" test -x /usr/bin/bootc || die "$IMAGE has no /usr/bin/bootc"

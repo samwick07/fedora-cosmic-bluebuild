@@ -10,11 +10,11 @@ on:
       recipe:
         description: "Recipe to build"
         required: true
-        default: recipe-framework.yml
+        default: recipe-frmwrk.yml
         type: choice
         options:
-          - recipe-framework.yml
-          - recipe-desktop.yml
+          - recipe-frmwrk.yml
+          - recipe-dsktp.yml
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}

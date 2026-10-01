@@ -60,8 +60,8 @@ SWAP_LUKS_UUID="${swap_part:+$(uuid "$swap_part")}"    # ${swap_part:-none}  ${s
 # Image to install (must exist in root podman storage, or in \$SUDO_USER's — the
 # script copies it across) and the registry ref the installed system pulls
 # updates from.
-IMAGE="localhost/fedora-cosmic-framework:latest"
-TARGET_IMGREF="ghcr.io/samwick07/fedora-cosmic-framework:latest"
+IMAGE="ghcr.io/samwick07/fedora-cosmic-frmwrk:latest"   # the pushed, signed build (also in local podman storage)
+TARGET_IMGREF="ghcr.io/samwick07/fedora-cosmic-frmwrk:latest"
 
 # LUKS UUIDs that must NEVER be on the target disk. Defaults: the 4TB
 # Workstation root + swap, and the DAS. install-atomic.sh refuses to run if any

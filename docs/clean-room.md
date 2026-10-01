@@ -49,7 +49,7 @@ it), or data (→ move into a Syncthing folder)?
 - Source of truth: `github.com/samwick07/dotfiles`. Bootstrap:
   `chezmoi init --apply samwick07`. Update: `chezmoi update`.
 - Machine identity comes from the image: `/etc/os-release` `VARIANT_ID`
-  (`framework` | `desktop`) is `{{ .machine }}` in every template. Hostnames
+  (`frmwrk` | `dsktp`, the machine names) is `{{ .machine }}` in every template. Hostnames
   and prompts are not used.
 - User-level setup lives in `run_once_*` scripts (Homebrew + Brewfile,
   `distrobox assemble`, flatpak overrides, `setup-cac.sh --user`, Syncthing user

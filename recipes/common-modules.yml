@@ -167,6 +167,7 @@ modules:
   #                         then hands over to `chezmoi init --apply`.
   # setup-cac.sh          — DoD PKI + OpenSC. --system (root) / --user (chezmoi run_once).
   # migrate-docker-to-podman.sh — one-time Open WebUI/SearXNG volume move.
+  # win11-cac             — hand the USB CAC reader to Win11VM and back (attach|detach|status).
   # distrobox.ini         — `distrobox assemble create --file /usr/share/distrobox/distrobox.ini`
   #                         (run by chezmoi run_once). Boxes: dev, claude, rocm.
   - type: files
@@ -177,13 +178,15 @@ modules:
         destination: /usr/bin/setup-cac.sh
       - source: scripts/migrate-docker-to-podman.sh
         destination: /usr/bin/migrate-docker-to-podman.sh
+      - source: scripts/win11-cac.sh
+        destination: /usr/bin/win11-cac
       - source: distrobox/distrobox.ini
         destination: /usr/share/distrobox/distrobox.ini
 
   # git does not reliably preserve the executable bit through the build context.
   - type: script
     snippets:
-      - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh"
+      - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac"
       # The files module keeps the checkout's modes; with umask 077 these land 0600
       # and the user session / shells / distrobox assemble cannot read them.
       - "chmod 0644 /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt"

@@ -42,19 +42,19 @@ pinned to `ostree-image-signed:` refuse the new image until you re-key
 
 ```bash
 cd ~/migration-prep/fedora-cosmic-bluebuild
-bluebuild build -B podman recipes/recipe-framework.yml   # ~10–25 min; layers cached after the first run
-podman images localhost/fedora-cosmic-framework          # -> localhost/fedora-cosmic-framework:latest
+bluebuild build -B podman recipes/recipe-frmwrk.yml   # ~10–25 min; layers cached after the first run
+podman images localhost/fedora-cosmic-frmwrk          # -> localhost/fedora-cosmic-frmwrk:latest
 ```
 
 `-B podman` matters: without it BlueBuild picks Docker whenever Docker is
 installed, the image lands in Docker's storage, and `install-atomic.sh` (which
 only looks in podman storage) stops with "image not found". To move an image
-that was built with Docker: `docker save localhost/fedora-cosmic-framework:latest | podman load`.
+that was built with Docker: `docker save localhost/fedora-cosmic-frmwrk:latest | podman load`.
 
 Smoke-test the image before installing or pushing:
 
 ```bash
-IMG=localhost/fedora-cosmic-framework:latest
+IMG=localhost/fedora-cosmic-frmwrk:latest
 podman run --rm $IMG bootc --version
 podman run --rm $IMG ls -l /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/share/distrobox/distrobox.ini /etc/fedora-cosmic-atomic/restore-allowlist.txt
 podman run --rm $IMG rpm -q tailscale restic syncthing chezmoi age ghostty starship swtpm edk2-ovmf NetworkManager-openvpn fprintd
@@ -72,10 +72,10 @@ git grep -nE "ts\.net"   # must print nothing
 cd ~/migration-prep/fedora-cosmic-bluebuild     # cosign.key must be in the cwd
 bluebuild build -B podman --push \
   --registry ghcr.io --registry-namespace samwick07 \
-  recipes/recipe-framework.yml
+  recipes/recipe-frmwrk.yml
 ```
 
-First push only: the package `ghcr.io/samwick07/fedora-cosmic-framework` is
+First push only: the package `ghcr.io/samwick07/fedora-cosmic-frmwrk` is
 created **private**. Make it public (GitHub → your profile → Packages → the
 package → Package settings → Change visibility), otherwise `bootc upgrade`
 on the installed machine gets a 401. The alternative is an auth file at
@@ -84,7 +84,7 @@ on the installed machine gets a 401. The alternative is an auth file at
 Both recipes at once:
 
 ```bash
-for r in recipe-framework.yml recipe-desktop.yml; do
+for r in recipe-frmwrk.yml recipe-dsktp.yml; do
   bluebuild build -B podman --push --registry ghcr.io --registry-namespace samwick07 recipes/$r || break
 done
 ```
@@ -95,9 +95,9 @@ done
 | --- | --- |
 | Fresh install of a disk | `sudo scripts/install-atomic.sh scripts/targets/<disk>.env` (uses the `localhost/` image, sets GHCR as update source) |
 | Routine update | `sudo bootc upgrade` (or `rpm-ostree upgrade`) then reboot |
-| Test a local build without pushing | `sudo bootc switch --transport containers-storage localhost/fedora-cosmic-framework:latest` — the image must be in **root's** podman storage (`sudo podman images`); copy with `podman save … \| sudo podman load` if you built rootless |
-| Go back to GHCR after a local test | `sudo bootc switch ghcr.io/samwick07/fedora-cosmic-framework:latest` |
-| Enforce signatures | `sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-framework:latest` — only after a signed push |
+| Test a local build without pushing | `sudo bootc switch --transport containers-storage localhost/fedora-cosmic-frmwrk:latest` — the image must be in **root's** podman storage (`sudo podman images`); copy with `podman save … \| sudo podman load` if you built rootless |
+| Go back to GHCR after a local test | `sudo bootc switch ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` |
+| Enforce signatures | `sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` — only after a signed push |
 | Roll back | `sudo bootc rollback` (or pick the previous entry in the GRUB menu) |
 
 ## Fedora version bump (44 → 45)

@@ -8,12 +8,12 @@
 # Special: Laptop power management, fingerprint reader, ambient light sensor,
 #          suspend-then-hibernate on lid close (96 GB LUKS swap partition)
 #
-# Local build:   bluebuild build -B podman recipes/recipe-framework.yml
-#                -> localhost/fedora-cosmic-framework:latest
+# Local build:   bluebuild build -B podman recipes/recipe-frmwrk.yml
+#                -> localhost/fedora-cosmic-frmwrk:latest
 # Publish:       see docs/local-build.md
-# Published to:  ghcr.io/samwick07/fedora-cosmic-framework:latest
+# Published to:  ghcr.io/samwick07/fedora-cosmic-frmwrk:latest
 
-name: fedora-cosmic-framework
+name: fedora-cosmic-frmwrk
 description: Fedora Atomic COSMIC for Framework 13 AMD
 
 base-image: quay.io/fedora-ostree-desktops/cosmic-atomic
@@ -75,7 +75,7 @@ modules:
       NAME: Fedora Cosmic Atomic (Framework)
       PRETTY_NAME: Fedora Cosmic Atomic for Framework 13 AMD
       VARIANT: Framework
-      VARIANT_ID: framework
+      VARIANT_ID: frmwrk
 
   # ─────────────────────────────────────────────
   # INITRAMFS — must run after every module that touches /etc or kernel bits

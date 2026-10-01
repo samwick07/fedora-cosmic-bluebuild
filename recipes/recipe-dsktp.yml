@@ -10,11 +10,11 @@
 # Network: Intel I226-V Ethernet + MediaTek MT7927 Wi-Fi 7
 # Peripherals: PiKVM, SCR3500 smart card reader, ROG STRIX HIVE II
 #
-# Local build:   bluebuild build -B podman recipes/recipe-desktop.yml
-#                -> localhost/fedora-cosmic-desktop:latest
-# Published to:  ghcr.io/samwick07/fedora-cosmic-desktop:latest
+# Local build:   bluebuild build -B podman recipes/recipe-dsktp.yml
+#                -> localhost/fedora-cosmic-dsktp:latest
+# Published to:  ghcr.io/samwick07/fedora-cosmic-dsktp:latest
 
-name: fedora-cosmic-desktop
+name: fedora-cosmic-dsktp
 description: Fedora Atomic COSMIC for desktop (Ryzen 9950X + RX 9070 XT)
 
 base-image: quay.io/fedora-ostree-desktops/cosmic-atomic
@@ -72,7 +72,7 @@ modules:
       NAME: Fedora Cosmic Atomic (Desktop)
       PRETTY_NAME: Fedora Cosmic Atomic for Desktop (9950X + 9070 XT)
       VARIANT: Desktop
-      VARIANT_ID: desktop
+      VARIANT_ID: dsktp
 
   # ─────────────────────────────────────────────
   # INITRAMFS — must run after every module that touches /etc or kernel bits

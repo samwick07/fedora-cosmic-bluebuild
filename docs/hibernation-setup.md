@@ -16,7 +16,7 @@ partition; resume asks for the LUKS passphrase and restores the session.
 | SELinux module `systemd_hibernate` | image: compiled by `configure-hibernation.sh`, source and `.pp` in `/usr/share/selinux/packages/fedora-cosmic-atomic/` |
 | **Secure Boot OFF** — kernel lockdown blocks hibernation | Firmware (F2 → Security) |
 
-Static parts live in the image (`recipes/recipe-framework.yml`); the UUID-bound
+Static parts live in the image (`recipes/recipe-frmwrk.yml`); the UUID-bound
 parts are per disk and are written at install time. Nothing hibernation-related
 lives in `/usr/local` any more (it would be lost on upgrade).
 

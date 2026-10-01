@@ -7,7 +7,7 @@
 # including the one the OS boots from. We therefore bind by PCI ADDRESS with a
 # driver_override udev rule that is included in the initramfs.
 #
-# Prereqs (in the image): kargs amd_iommu=on iommu=pt (recipe-desktop.yml).
+# Prereqs (in the image): kargs amd_iommu=on iommu=pt (recipe-dsktp.yml).
 #
 # Usage: sudo enable-vfio.sh [PCI-ADDRESS]     e.g. sudo enable-vfio.sh 0000:02:00.0
 #        sudo enable-vfio.sh --remove
