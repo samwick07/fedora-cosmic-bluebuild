@@ -16,8 +16,8 @@ Only the first two are declarative. The last two are data and are never "install
 
 | Lane | Rule | Examples from the old Workstation |
 | --- | --- | --- |
-| **Image** (`recipes/`) | needs the host kernel, systemd, `/dev`, or must exist before the user layer can bootstrap | tailscale, syncthing, restic, libvirt/qemu/swtpm/edk2, fprintd, iio-sensor-proxy, NM VPN plugins, ghostty, tmux, starship, topgrade, chezmoi, age, distrobox |
-| **Flatpak** (`common-modules.yml` → `default-flatpaks`) | GUI app | Chrome, Firefox, VLC, GIMP, Inkscape, Darktable, LibreOffice, Calibre, Signal, Steam, Bottles (replaces the wine RPMs), Remmina (replaces freerdp/tigervnc), Flatseal, Gear Lever |
+| **Image** (`recipes/`) | needs the host kernel, systemd, `/dev`, or must exist before the user layer can bootstrap (Firefox and Toolbx come with the base and stay as fallbacks) | tailscale, syncthing, restic, libvirt/qemu/swtpm/edk2, fprintd, iio-sensor-proxy, NM VPN plugins, ghostty, tmux, starship, topgrade, chezmoi, age, distrobox |
+| **Flatpak** (`common-modules.yml` → `default-flatpaks`) | GUI app | Chrome, VLC, GIMP, Inkscape, Darktable, LibreOffice, Calibre, Signal, Steam, Bottles (replaces the wine RPMs), Remmina (replaces freerdp/tigervnc), Flatseal, Gear Lever |
 | **Homebrew** (`~/.Brewfile` in dotfiles) | CLI tool, no distro dependency | eza bat fd ripgrep fzf zoxide jq yq btop fastfetch micro superfile gh uv shellcheck shfmt lazydocker opencode tesseract ocrmypdf nmap mtr |
 | **distrobox** (`files/distrobox/distrobox.ini`) | needs a whole distro: IDEs, toolchains, vendor stacks | `dev` (Fedora: VS Code, Antigravity, Node 22, Java 25, Python, gcc), `claude` (Ubuntu 24.04: Claude Desktop from its apt repo, exported to the menu, plus the Claude Code CLI — as today, until an RPM/flatpak exists), `rocm` (AMD compute) |
 | **AppImage** (`~/AppImages` + Gear Lever) | vendor ships only an AppImage | whatever is there today |

@@ -99,18 +99,11 @@ modules:
         - policycoreutils-python-utils # audit2allow / semanage on the host
 
         # ── Already in base image (do NOT re-install) ──
-        # podman, python3, nvme-cli, ntfs-3g, exfatprogs, cifs-utils
+        # podman, toolbox, firefox, python3, nvme-cli, ntfs-3g, exfatprogs, cifs-utils
+        #   (firefox + toolbox stay on purpose: fallbacks if Chrome or distrobox break.
+        #    Boxes are distrobox; dev uses plain fedora:44 so Toolbx never adopts it.)
         # linux-firmware, mesa drivers, vulkan-loader, pipewire, bootc, bootupd
         # opensc, pcsc-lite, pcsc-lite-ccid, p11-kit, p11-kit-trust
-
-  # Firefox comes back as a flatpak. Removing an RPM that is not installed fails
-  # the build, so guard it instead of using the dnf module's `remove:`.
-  - type: script
-    snippets:
-      - "if rpm -q firefox >/dev/null 2>&1; then dnf5 -y remove firefox firefox-langpacks; fi"
-      # distrobox only: Toolbx adopts any container carrying its label and
-      # breaks topgrade's Toolbx step. Nothing in the image requires it.
-      - "if rpm -q toolbox >/dev/null 2>&1; then dnf5 -y remove toolbox; fi"
 
   # ─────────────────────────────────────────────
   # SYSTEMD SERVICES
@@ -141,7 +134,6 @@ modules:
         install:
           # ── Browsers ──
           - com.google.Chrome                 # default browser (mimeapps.list)
-          - org.mozilla.firefox               # CAC-friendly second browser
           # ── System utilities ──
           - com.github.tchx84.Flatseal
           - it.mijorus.gearlever              # AppImage manager (Claude Desktop lives in ~/AppImages)
