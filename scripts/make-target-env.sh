@@ -52,10 +52,10 @@ cat <<EOF
 # Check every line against \`lsblk -o NAME,SIZE,FSTYPE,UUID $disk\` before use.
 TARGET_NAME="$name"
 
-EFI_UUID="$(uuid "$efi")"                # $efi  $(lsblk -no SIZE "$efi")  vfat
-BOOT_UUID="$(uuid "$boot")"              # $boot  $(lsblk -no SIZE "$boot")  ext4
-ROOT_LUKS_UUID="$(uuid "$root_part")"    # $root_part  $(lsblk -no SIZE "$root_part")  LUKS -> btrfs /
-SWAP_LUKS_UUID="${swap_part:+$(uuid "$swap_part")}"    # ${swap_part:-none}  ${swap_part:+$(lsblk -no SIZE "$swap_part")}  LUKS -> swap (empty = no swap/hibernation)
+EFI_UUID="$(uuid "$efi")"                # $efi  $(lsblk -dno SIZE "$efi")  vfat
+BOOT_UUID="$(uuid "$boot")"              # $boot  $(lsblk -dno SIZE "$boot")  ext4
+ROOT_LUKS_UUID="$(uuid "$root_part")"    # $root_part  $(lsblk -dno SIZE "$root_part")  LUKS -> btrfs /
+SWAP_LUKS_UUID="${swap_part:+$(uuid "$swap_part")}"    # ${swap_part:-none}  ${swap_part:+$(lsblk -dno SIZE "$swap_part")}  LUKS -> swap (empty = no swap/hibernation)
 
 # Image to install (must exist in root podman storage, or in \$SUDO_USER's — the
 # script copies it across) and the registry ref the installed system pulls
