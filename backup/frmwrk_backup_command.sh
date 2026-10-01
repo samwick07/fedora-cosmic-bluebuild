@@ -8,13 +8,24 @@
 #           config, tailscale identity, BLS entries, the BlueBuild repo.
 # Repository: /run/media/<user>/DAS/frmwrk-restic-repo/
 #
-# Usage: ./frmwrk_backup_command.sh            (as <user>; uses sudo for root paths)
+# Usage: ./frmwrk_backup_command.sh            (as <user>; re-runs itself under sudo)
+#
+# Root is needed for the libvirt/etc paths. The script asks for the sudo
+# password once and then runs entirely as root, so a multi-hour run never
+# outlives the sudo timestamp. No sudoers rule is needed.
 #
 set -euo pipefail
 
+[[ $EUID -eq 0 ]] || exec sudo -- "$(readlink -f "$0")" "$@"
+
+# Under sudo $HOME is /root; back up the invoking user's home.
+[[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]] \
+    || { echo "ERROR: run as your normal user (the script elevates itself)"; exit 1; }
+USER_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+
 REPO="/run/media/<user>/DAS/frmwrk-restic-repo"
 EXCLUDES="/run/media/<user>/DAS/frmwrk-restic-excludes"
-PASSFILE="$HOME/.restic/frmwrk-repo.pass"
+PASSFILE="$USER_HOME/.restic/frmwrk-repo.pass"
 LOGFILE="/run/media/<user>/DAS/frmwrk-backup.log"
 
 [[ -d "$REPO" ]]    || { echo "ERROR: restic repo not found at $REPO — is the DAS mounted?"; exit 1; }
@@ -27,19 +38,19 @@ export RESTIC_PASSWORD_FILE="$PASSFILE"
 echo "=== Framework backup started: $(date) ===" | tee -a "$LOGFILE"
 
 # Clear a stale lock left by an interrupted run (only if no restic is running).
-if ! pgrep -x restic >/dev/null && sudo restic list locks 2>/dev/null | grep -q .; then
+if ! pgrep -x restic >/dev/null && restic list locks 2>/dev/null | grep -q .; then
     echo "removing stale lock" | tee -a "$LOGFILE"
-    sudo restic unlock 2>&1 | tee -a "$LOGFILE"
+    restic unlock 2>&1 | tee -a "$LOGFILE"
 fi
 
 # Paths. Keep this list STABLE: changing it makes restic lose the parent
 # snapshot and re-read everything (slow, not unsafe).
-sudo restic backup \
+restic backup \
     --verbose \
     --exclude-file "$EXCLUDES" \
     --tag frmwrk \
     --tag "$(hostname)" \
-    "$HOME" \
+    "$USER_HOME" \
     /var/lib/libvirt/vm-images/ \
     /var/lib/libvirt/images/ \
     /var/lib/libvirt/qemu/nvram/ \
@@ -56,12 +67,12 @@ sudo restic backup \
     2>&1 | tee -a "$LOGFILE"
 
 echo "=== Pruning old snapshots: $(date) ===" | tee -a "$LOGFILE"
-sudo restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune 2>&1 | tee -a "$LOGFILE"
+restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune 2>&1 | tee -a "$LOGFILE"
 
 echo "=== Latest snapshots: $(date) ===" | tee -a "$LOGFILE"
-sudo restic snapshots --latest 3 2>&1 | tee -a "$LOGFILE"
+restic snapshots --latest 3 2>&1 | tee -a "$LOGFILE"
 
 # Cheap integrity check every run; a deep one (--read-data-subset) monthly by hand.
 echo "=== restic check: $(date) ===" | tee -a "$LOGFILE"
-sudo restic check 2>&1 | tee -a "$LOGFILE"
+restic check 2>&1 | tee -a "$LOGFILE"
 echo "=== Backup complete: $(date) ===" | tee -a "$LOGFILE"

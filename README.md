@@ -46,7 +46,6 @@ scripts/
 backup/
   frmwrk_backup_command.sh  restic backup (source of truth for the copy on the DAS)
   frmwrk-restic-excludes    anchored exclude list
-  restic-backup-sudoers     /etc/sudoers.d/restic-backup
 docs/
   clean-room.md             the four layers, software lanes, restore allowlist, Syncthing rules
   migration-guide.md        install → first boot → restore → validate → 4TB → rollback

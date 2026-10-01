@@ -22,18 +22,19 @@ See `docs/bootloader.md` for why systemd-boot is not used.
 
 1. **Backup is fresh and verified.** On the Workstation:
    ```bash
-   export RESTIC_REPOSITORY=/run/media/<user>/DAS/frmwrk-restic-repo RESTIC_PASSWORD_FILE=~/.restic/frmwrk-repo.pass
-   sudo restic unlock
-   sudo restic snapshots --latest 3
-   sudo restic check --read-data-subset=10%           # ~1 h on USB; do the full --read-data once before Phase 5
+   # sudo resets the environment, so pass repo + password file as flags, not RESTIC_* variables
+   r() { sudo restic -r /run/media/<user>/DAS/frmwrk-restic-repo --password-file ~/.restic/frmwrk-repo.pass "$@"; }
+   r unlock
+   r snapshots --latest 3
+   r check --read-data-subset=10%           # ~1 h on USB; do the full --read-data once before Phase 5
    # dry-run restore of something small, to prove passphrase + syntax
-   sudo restic restore latest --target /tmp/rt --include /home/<user>/.ssh && ls -la /tmp/rt/home/<user>/.ssh && sudo rm -rf /tmp/rt
+   r restore latest --target /tmp/rt --include /home/<user>/.ssh && ls -la /tmp/rt/home/<user>/.ssh && sudo rm -rf /tmp/rt
    ```
    If the backup script on the DAS is older than `backup/frmwrk_backup_command.sh`
    in this repo, copy the repo versions over and run a backup:
    ```bash
    cp backup/frmwrk_backup_command.sh backup/frmwrk-restic-excludes /run/media/<user>/DAS/
-   /run/media/<user>/DAS/frmwrk_backup_command.sh
+   /run/media/<user>/DAS/frmwrk_backup_command.sh     # asks for the sudo password once, then runs as root
    ```
 2. **Secrets off the machine.** Copy to a USB stick / password manager:
    `~/.restic/frmwrk-repo.pass` (and know the passphrase itself), `cosign.key`,
@@ -175,7 +176,7 @@ Steps, in order (each idempotent; `--step N` reruns one, `--check` reports):
 | # | Does | Needs |
 | --- | --- | --- |
 | 1 | Mounts the DAS by LUKS UUID | DAS attached, passphrase |
-| 2 | Restores `~/.restic` (prompts for the repo passphrase), then every path in `/etc/fedora-cosmic-atomic/restore-allowlist.txt` in order — Syncthing data folders, `.ssh`/`.gnupg`/`.config/gh`, `.claude`/`.hermes`/`migration-prep`, and **last** the Syncthing identity; plus `/etc/NetworkManager` and the restic sudoers | hours for ~1.4 TiB |
+| 2 | Restores `~/.restic` (prompts for the repo passphrase), then every path in `/etc/fedora-cosmic-atomic/restore-allowlist.txt` in order — Syncthing data folders, `.ssh`/`.gnupg`/`.config/gh`, `.claude`/`.hermes`/`migration-prep`, and **last** the Syncthing identity; plus `/etc/NetworkManager` | hours for ~1.4 TiB |
 | 3 | Verifies hibernation (karg, swap, SELinux); repairs on the Anaconda path | — |
 | 4 | CAC system half: pcscd, DoD roots into the system trust | cert bundle from step 2 |
 | 5 | libvirt: modular daemons, `/etc/libvirt`, `Win11VM.qcow2` (512 GB), NVRAM + swtpm state, defines the VM | — |

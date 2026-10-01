@@ -54,7 +54,7 @@ mark_step_done() { mkdir -p "${STATE_DIR}"; touch "${STATE_DIR}/${1}.done"; }
 
 STEPS=(
     "Mount DAS"
-    "Restore DATA from restic by allowlist (+ NetworkManager, restic sudoers)"
+    "Restore DATA from restic by allowlist (+ NetworkManager)"
     "Verify hibernation (resume= karg, swap active, SELinux module)"
     "CAC: pcscd + DoD roots into system trust"
     "libvirt: restore Win11VM (config, disk, NVRAM, TPM state)"
@@ -163,17 +163,6 @@ step2_restore() {
             ok "NetworkManager connections restored"; }
     fi
 
-    if [[ -f /etc/sudoers.d/restic-backup ]]; then
-        skip "restic sudoers already installed"
-    else
-        cat > /etc/sudoers.d/restic-backup <<'SUDOERS'
-# /etc/sudoers.d/restic-backup — passwordless restic for the backup script.
-Defaults:<user> env_keep += "RESTIC_REPOSITORY RESTIC_PASSWORD_FILE"
-<user> ALL=(root) NOPASSWD: /usr/bin/restic
-SUDOERS
-        chmod 0440 /etc/sudoers.d/restic-backup; visudo -cf /etc/sudoers.d/restic-backup
-        ok "restic sudoers installed"
-    fi
     mark_step_done "step2"
 }
 
