@@ -14,7 +14,9 @@ PUBLIC=0
 [[ "${1:-}" == --public ]] && { PUBLIC=1; shift; }
 NOTE="${*:-}"
 host=$(hostname)
-dir="${COSMIC_REPORT_DIR:-$HOME/migration-prep/logs}"; [[ -d "$dir" ]] || dir="$HOME/cosmic-reports"
+if [[ -n "${COSMIC_REPORT_DIR:-}" ]]; then dir="$COSMIC_REPORT_DIR"
+elif [[ -d "$HOME/migration-prep/logs" ]]; then dir="$HOME/migration-prep/logs"
+else dir="$HOME/cosmic-reports"; fi
 mkdir -p "$dir"
 out="$dir/report-${host}-$(date +%Y%m%d-%H%M%S)$([[ $PUBLIC == 1 ]] && echo -public).txt"
 
