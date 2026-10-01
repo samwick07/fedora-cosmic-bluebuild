@@ -1,10 +1,22 @@
 name: bluebuild
 
-# Images are built and pushed LOCALLY (see docs/local-build.md). This workflow
-# is kept only as a fallback for when the laptop is unavailable — run it by
-# hand from the Actions tab. No schedule, no push trigger, no PR builds:
-# every one of those costs GitHub Actions minutes for no benefit.
+# Nightly rebuild of the published image, only when something changed:
+#   - the base image digest differs from the one the published image was built on
+#     (Fedora pushes cosmic-atomic:44 around 03:10 UTC), or
+#   - no published image carries this commit's <sha7>-44 tag.
+# scripts/smoke-test.sh gates the push. Local builds (docs/local-build.md) work
+# the same way and stay the primary path; this keeps the image current when the
+# laptop is off.
+#
+# One-time setup:
+#   - Secret SIGNING_SECRET = contents of cosign.key (the key cosign.pub belongs to).
+#   - GHCR push: either give this repo Write access in the package settings
+#     (ghcr.io/samwick07/fedora-cosmic-frmwrk -> Manage Actions access), which
+#     lets the built-in GITHUB_TOKEN push, or add secret GHCR_TOKEN (classic PAT,
+#     write:packages).
 on:
+  schedule:
+    - cron: "17 6 * * *"
   workflow_dispatch:
     inputs:
       recipe:
@@ -15,26 +27,95 @@ on:
         options:
           - recipe-frmwrk.yml
           - recipe-dsktp.yml
+      force:
+        description: "Build even if base and repo are unchanged"
+        type: boolean
+        default: false
+      chunked_oci:
+        description: "Rechunk with rpm-ostree build-chunked-oci (trial; compare update size)"
+        type: boolean
+        default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ inputs.recipe || 'recipe-frmwrk.yml' }}
+  cancel-in-progress: false
+
+env:
+  RECIPE: recipes/${{ inputs.recipe || 'recipe-frmwrk.yml' }}
+  BLUEBUILD_INSTALLER: ghcr.io/blue-build/cli:v0.9.37-installer
+  REGISTRY_NAMESPACE: samwick07
 
 jobs:
-  bluebuild:
-    name: Build Custom Image
-    runs-on: ubuntu-latest
+  check:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      image: ${{ steps.decide.outputs.image }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: decide
+        env:
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          scripts/ci-should-build.sh "$RECIPE" | tee -a "$GITHUB_OUTPUT"
+          grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | sed 's/^reason=/**Decision:** /' >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
     permissions:
       contents: read
       packages: write
-      id-token: write
-
+    env:
+      BB_USERNAME: ${{ github.actor }}
+      BB_PASSWORD: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+      BB_REGISTRY: ghcr.io
+      BB_REGISTRY_NAMESPACE: samwick07
+      CHUNKED: ${{ inputs.chunked_oci && '--build-chunked-oci' || '' }}
     steps:
-      - name: Build Custom Image
-        uses: blue-build/github-action@v1.13
+      - name: Free disk space
+        uses: hastd/free-disk-space@68572aeaadb7f76bd408246328e95926323402b5 # v0.1.2
         with:
-          recipe: ${{ inputs.recipe }}
-          cosign_private_key: ${{ secrets.SIGNING_SECRET }}
-          registry_token: ${{ secrets.GHCR_TOKEN }}
-          pr_event_number: ${{ github.event.number }}
-          maximize_build_space: true
+          skip-if-available: "80G"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install BlueBuild CLI (pinned) and cosign
+        run: |
+          docker create --name bb-installer "$BLUEBUILD_INSTALLER"
+          sudo docker cp bb-installer:/out/bluebuild /usr/local/bin/bluebuild
+          docker rm bb-installer
+          bluebuild --version
+          podman --version
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - name: Registry login
+        run: printf '%s' "$BB_PASSWORD" | podman login ghcr.io -u "$BB_USERNAME" --password-stdin
+
+      # Build only; nothing leaves the runner unless the smoke test passes.
+      - name: Build
+        run: bluebuild build -v -B podman ${CHUNKED:+"$CHUNKED"} "$RECIPE"
+
+      - name: Smoke test
+        run: |
+          img=$(podman images --format '{{.Repository}}:{{.Tag}}' | grep -m1 -E "/${{ needs.check.outputs.image }}:latest_linux_amd64$|^${{ needs.check.outputs.image }}:latest_linux_amd64$" \
+                || podman images --format '{{.Repository}}:{{.Tag}}' | grep -m1 -E ":latest_linux_amd64$")
+          echo "smoke-testing $img"
+          scripts/smoke-test.sh "$img"
+
+      # Same build again with --push: every layer is cached, so this tags,
+      # pushes and signs what was just tested.
+      - name: Push + sign
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          COSIGN_PASSWORD: ""
+        run: |
+          [[ -n "$COSIGN_PRIVATE_KEY" ]] || { echo "::error::secret SIGNING_SECRET is not set"; exit 1; }
+          bluebuild build -v -B podman ${CHUNKED:+"$CHUNKED"} --push --registry ghcr.io --registry-namespace samwick07 "$RECIPE"
+
+      - name: Verify signature
+        run: cosign verify --key cosign.pub "${{ needs.check.outputs.image }}:latest" > /dev/null && echo "signature OK" >> "$GITHUB_STEP_SUMMARY"

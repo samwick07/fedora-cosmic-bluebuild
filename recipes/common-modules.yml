@@ -27,7 +27,7 @@ modules:
   # ─────────────────────────────────────────────
   # STATIC CONFIG FILES  (files/etc/** -> /etc/**)
   # ─────────────────────────────────────────────
-  - type: files
+  - type: files@v1
     files:
       - source: etc
         destination: /etc
@@ -35,7 +35,7 @@ modules:
   # ─────────────────────────────────────────────
   # RPM PACKAGES (host image only — cannot be containerized)
   # ─────────────────────────────────────────────
-  - type: dnf
+  - type: dnf@v1
     repos:
       copr:
         - scottames/ghostty        # Ghostty terminal (host shell)
@@ -111,7 +111,7 @@ modules:
   # ─────────────────────────────────────────────
   # libvirt runs as modular daemons on Fedora. Do NOT enable libvirtd.service —
   # it conflicts with the virt*d sockets and one of them fails at boot.
-  - type: systemd
+  - type: systemd@v1
     system:
       enabled:
         - tailscaled.service
@@ -128,7 +128,7 @@ modules:
   # ─────────────────────────────────────────────
   # The module configures the Flathub remote itself (system and user scope)
   # and installs the list on first boot via a systemd service.
-  - type: default-flatpaks
+  - type: default-flatpaks@v2
     configurations:
       - notify: true
         scope: system
@@ -166,7 +166,7 @@ modules:
   # win11-cac             — hand the USB CAC reader to Win11VM and back (attach|detach|status).
   # distrobox.ini         — `distrobox assemble create --file /usr/share/distrobox/distrobox.ini`
   #                         (run by chezmoi run_once). Boxes: dev, claude, rocm.
-  - type: files
+  - type: files@v1
     files:
       - source: scripts/post-install-setup.sh
         destination: /usr/bin/post-install-setup.sh
@@ -180,7 +180,7 @@ modules:
         destination: /usr/share/distrobox/distrobox.ini
 
   # git does not reliably preserve the executable bit through the build context.
-  - type: script
+  - type: script@v2
     snippets:
       - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac"
       # The files module keeps the checkout's modes; with umask 077 these land 0600

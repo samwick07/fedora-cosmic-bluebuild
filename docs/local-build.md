@@ -1,9 +1,22 @@
 # Building and publishing the images locally
 
 Images are built on the laptop (or desktop) with the BlueBuild CLI and pushed
-to GHCR from there. GitHub Actions is a fallback only (`workflow_dispatch`);
-it has no schedule and no push/PR triggers, so it costs nothing unless you
-click Run.
+to GHCR from there. GitHub Actions (`.github/workflows/build.yml`) does the
+same nightly when something changed — the base image digest, or a commit with
+no published `<sha7>-44` tag (`scripts/ci-should-build.sh`) — and only pushes
+after `scripts/smoke-test.sh` passes. Run it by hand from the Actions tab with
+`force` or `chunked_oci` (rechunk trial). Setup: secret `SIGNING_SECRET`
+(= `cosign.key`), and the package's "Manage Actions access" granting this repo
+Write (or a `GHCR_TOKEN` PAT secret).
+
+Pinned on purpose: the BlueBuild CLI (installer `v0.9.37`), the GitHub actions
+(by commit), and the BlueBuild modules (`type: dnf@v1`, `script@v2`,
+`default-flatpaks@v2`, … = what `latest` was on 2026-10-01). Bump them
+deliberately. Not enabled: zstd push compression (`--compression-format zstd`)
+— untested with `bootc upgrade` from this registry; try it on the test drive
+first. Rechunking (`--build-chunked-oci`) is a dispatch option until two runs
+show the per-update download vs `logs/compare-layers.log` (1.63 GB custom vs
+0.80 GB stock).
 
 ## One-time setup on the build machine
 

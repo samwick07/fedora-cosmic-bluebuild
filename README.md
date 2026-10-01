@@ -46,6 +46,7 @@ scripts/
                             the ONLY place personal values live; installed as /etc/fedora-cosmic-atomic/site.env
   smoke-test.sh             checks a built image (gates the CI push)
   check-leaks.sh            fails if personal values appear in the repo or an image
+  ci-should-build.sh        CI: build only if the base digest or the repo changed
   reregister-win11vm.sh     recreate the Win11VM domain if its XML is ever lost
 backup/
   frmwrk_backup_command.sh  restic backup (source of truth for the copy on the DAS)
@@ -56,7 +57,7 @@ docs/
   local-build.md            build, smoke-test, sign, push, switch, version bump
   hibernation-setup.md      what must be true for suspend-then-hibernate, and how to check
   bootloader.md             GRUB; why systemd-boot was dropped and how to try it later
-.github/workflows/build.yml manual fallback only (workflow_dispatch) — no scheduled or PR builds
+.github/workflows/build.yml nightly if base or repo changed; smoke tests gate the push (scripts/ci-should-build.sh)
 cosign.pub                  image verification key (private key: cosign.key, gitignored)
 ```
 

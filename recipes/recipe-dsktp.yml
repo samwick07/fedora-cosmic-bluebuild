@@ -37,7 +37,7 @@ modules:
   # IOMMU is enabled statically here. The device binding is done by PCI
   # ADDRESS post-install (enable-vfio.sh), never by vfio-pci.ids: both T700s
   # share one vendor:device ID, so an ids= karg would grab the boot drive too.
-  - type: kargs
+  - type: kargs@v1
     arch: x86_64
     kargs:
       - amd_iommu=on
@@ -48,26 +48,26 @@ modules:
   # ─────────────────────────────────────────────
   # RX 9070 XT is Navi 48 (RDNA 4, gfx1201). Verify after install with:
   #   distrobox enter rocm -- rocminfo | grep gfx
-  - type: script
+  - type: script@v2
     scripts:
       - configure-amd-gpu-desktop.sh
 
   # ─────────────────────────────────────────────
   # VFIO POST-INSTALL SCRIPT
   # ─────────────────────────────────────────────
-  - type: files
+  - type: files@v1
     files:
       - source: scripts/enable-vfio.sh
         destination: /usr/bin/enable-vfio.sh
 
-  - type: script
+  - type: script@v2
     snippets:
       - "chmod 0755 /usr/bin/enable-vfio.sh"
 
   # ─────────────────────────────────────────────
   # OS IDENTITY
   # ─────────────────────────────────────────────
-  - type: os-release
+  - type: os-release@v1
     properties:
       NAME: Fedora Cosmic Atomic (Desktop)
       PRETTY_NAME: Fedora Cosmic Atomic for Desktop (9950X + 9070 XT)
@@ -77,12 +77,12 @@ modules:
   # ─────────────────────────────────────────────
   # INITRAMFS — must run after every module that touches /etc or kernel bits
   # ─────────────────────────────────────────────
-  - type: initramfs
+  - type: initramfs@v1
 
-  - type: signing
+  - type: signing@v1
 
   # Local builds sign for localhost/<image> (BlueBuild CLI bug); point the
   # policy at the published name so bootc verifies updates.
-  - type: script
+  - type: script@v2
     scripts:
       - fix-signing-registry.sh

@@ -28,7 +28,7 @@ modules:
   # ─────────────────────────────────────────────
   # Installing a package that the base already ships is a no-op, so these are
   # listed even though some are probably present: it documents the dependency.
-  - type: dnf
+  - type: dnf@v1
     install:
       install-weak-deps: false
       packages:
@@ -43,7 +43,7 @@ modules:
   # ─────────────────────────────────────────────
   # The 780M is gfx1103; ROCm has no kernels for it and needs
   # HSA_OVERRIDE_GFX_VERSION=11.0.0 to run gfx1100 code on it.
-  - type: script
+  - type: script@v2
     scripts:
       - configure-amd-gpu-framework.sh
 
@@ -54,23 +54,23 @@ modules:
   # resume= and rd.luks.uuid= are per-installation and are set by
   # scripts/install-atomic.sh (bootc path) or by enable-hibernation.sh
   # (Anaconda path). See docs/hibernation-setup.md.
-  - type: script
+  - type: script@v2
     scripts:
       - configure-hibernation.sh
 
-  - type: files
+  - type: files@v1
     files:
       - source: scripts/enable-hibernation.sh
         destination: /usr/bin/enable-hibernation.sh
 
-  - type: script
+  - type: script@v2
     snippets:
       - "chmod 0755 /usr/bin/enable-hibernation.sh"
 
   # ─────────────────────────────────────────────
   # OS IDENTITY
   # ─────────────────────────────────────────────
-  - type: os-release
+  - type: os-release@v1
     properties:
       NAME: Fedora Cosmic Atomic (Framework)
       PRETTY_NAME: Fedora Cosmic Atomic for Framework 13 AMD
@@ -80,12 +80,12 @@ modules:
   # ─────────────────────────────────────────────
   # INITRAMFS — must run after every module that touches /etc or kernel bits
   # ─────────────────────────────────────────────
-  - type: initramfs
+  - type: initramfs@v1
 
-  - type: signing
+  - type: signing@v1
 
   # Local builds sign for localhost/<image> (BlueBuild CLI bug); point the
   # policy at the published name so bootc verifies updates.
-  - type: script
+  - type: script@v2
     scripts:
       - fix-signing-registry.sh
