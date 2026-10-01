@@ -25,7 +25,7 @@ if [[ -f scripts/targets/site.env ]]; then
     source scripts/targets/site.env
 fi
 # Every real UUID known locally (site.env + the gitignored target files), and
-# its first 8 characters: docs tend to abbreviate ("xxxxxxxx-…").
+# its first 8 characters: docs tend to abbreviate ("1a2b3c4d-…").
 KNOWN_UUIDS=$(cat scripts/targets/*.env 2>/dev/null \
     | grep -oiE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9A-F]{4}-[0-9A-F]{4}\b' \
     | grep -v '^00000000-' | sort -u || true)
