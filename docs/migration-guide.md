@@ -101,6 +101,7 @@ cat scripts/targets/2tb-test.env
 
 ```bash
 cd ~/migration-prep/fedora-cosmic-bluebuild
+sudo efibootmgr -v > ~/migration-prep/logs/efibootmgr-before.txt   # Phase 3 compares against this
 sudo scripts/install-atomic.sh scripts/targets/2tb-test.env
 ```
 
@@ -124,8 +125,29 @@ target `.env` to `/etc/fedora-cosmic-atomic/install-target.env` on the new syste
 
 ## Phase 3 — First boot
 
-1. Reboot, **F12**, choose the target disk (it appears as its enclosure or
-   "Fedora"). Both LUKS containers prompt (once if the passphrases match).
+1. **Swap the drive in.** The test drive is installed while it sits in the
+   USB enclosure; it then boots from the laptop's NVMe slot:
+   1. Before powering off (2TB still on USB), check the boot entries and the
+      target's ESP:
+      ```bash
+      sudo efibootmgr -v                       # compare with the copy taken before the install;
+                                               # if BootOrder changed, put the Workstation back first:
+                                               #   sudo efibootmgr -o 0000,<rest>
+      sudo mkdir -p /mnt/esp2 && sudo mount -o ro /dev/disk/by-uuid/<EFI_UUID> /mnt/esp2
+      ls -R /mnt/esp2/EFI                      # need EFI/BOOT/BOOTX64.EFI + fbx64.efi, EFI/fedora/shimx64.efi + grubx64.efi
+      sudo umount /mnt/esp2
+      ```
+      If `EFI/BOOT/BOOTX64.EFI` is missing, stop — the firmware will not find
+      the disk after the swap. Do not hand-copy loaders; fix the install.
+   2. Power off. Take the 4TB out of the NVMe slot (it stays on the desk,
+      untouched) and put the 2TB in.
+   3. Power on. The firmware boots the only internal disk via its fallback
+      loader (`EFI/BOOT/BOOTX64.EFI`). Use **F12** only if it doesn't pick it
+      up. Everything is UUID-based, so the device path changing from `sdX`
+      to `nvme0n1` doesn't matter.
+   4. Both LUKS containers prompt (once if the passphrases match). These are
+      the containers that were already on the disk; the install keeps their
+      passphrases.
 2. Log in as **`<user>`** with the password you typed during the install
    (the script created the user, uid 1000, in `wheel` and `libvirt`, and gave
    root the same password). There is no first-run wizard on the bootc path.
@@ -211,8 +233,11 @@ Then the 4TB:
 
 1. Last Workstation backup + `restic check`. Copy anything not in the backup
    list that you would miss (check `restic ls latest | less`).
-2. Boot the **test drive** (not the Workstation). From there the 4TB is just
-   another disk, so `install-atomic.sh`'s "running system" guard does not fire.
+2. Put the 4TB back in the NVMe slot and the test drive back in the USB
+   enclosure, then boot the **test drive** from USB (**F12**), not the
+   Workstation. From there the 4TB is just another disk, so
+   `install-atomic.sh`'s "running system" guard does not fire, and since the
+   4TB is internal there is no swap afterwards — unplug the test drive.
 3. `sudo scripts/make-target-env.sh /dev/nvme0n1 > scripts/targets/4tb-primary.env`,
    set `SKIP_FINALIZE=0` and `TEST_INSTALL=0`, and **edit `PROTECTED_LUKS_UUIDS`**: remove the two
    4TB UUIDs, add the test drive's root LUKS UUID.
@@ -233,7 +258,7 @@ after the laptop has proven the workflow for several months.
 | Problem | Action |
 | --- | --- |
 | New deployment does not boot | GRUB menu → previous entry. Then `sudo bootc rollback` to make it permanent. |
-| Whole disk unbootable | Boot the other disk (test drive ⇄ 4TB) via F12; reinstall the broken one with `install-atomic.sh` (5 min) and rerun `post-install-setup.sh`. |
+| Whole disk unbootable | Power off, put the other disk (test drive ⇄ 4TB) in the NVMe slot or boot it from the USB enclosure via F12; reinstall the broken one with `install-atomic.sh` (5 min) and rerun `post-install-setup.sh`. |
 | Image on GHCR broken | `sudo bootc switch --transport containers-storage localhost/fedora-cosmic-frmwrk:latest` with a known-good local build, or `bootc rollback`. |
 | Lost `cosign.key` | Build/push unsigned, `bootc switch ghcr.io/…` (unsigned transport is the default). Regenerate keys, commit new `cosign.pub`, rebuild, rebase signed later. |
 | Lost restic password file | The passphrase itself is enough: `restic -r <repo> restore …` prompts for it. |

@@ -300,12 +300,16 @@ cat <<EOF
 === Installation complete on /dev/$TARGET_DISK ===
 
 Next:
-  1. Reboot, open the firmware boot menu (Framework: F12), pick the target disk.
+  1. Target on USB (the test drive): check efibootmgr and the ESP fallback
+     loader (docs/migration-guide.md Phase 3), power off, swap the disk into
+     the NVMe slot, power on. F12 only if the firmware doesn't pick it up.
+     Target internal: just reboot.
      Secure Boot must be OFF (hibernation needs it off; the image is not
      shim-signed for a custom key either).
   2. Enter the LUKS passphrase (once if root and swap share it).
   3. Log in as $CREATE_USER, then:  sudo post-install-setup.sh
   4. See docs/migration-guide.md for the validation checklist.
 
-Rollback: the previous OS disk is untouched — pick it in the firmware menu.
+Rollback: the previous OS disk is untouched — put it back in the NVMe slot
+(or boot it from USB via F12).
 EOF
