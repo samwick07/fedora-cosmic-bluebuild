@@ -16,10 +16,11 @@
 #   2. Refuses if any PROTECTED_LUKS_UUIDS (the 4TB Workstation, the DAS) or the
 #      disk the running system booted from is that disk.
 #   3. Unlocks the LUKS containers if needed, unmounts anything mounted from them.
-#   4. Shows a summary and waits for you to type the disk name.
-#   5. mkfs.btrfs the root container (the ESP, /boot and swap are kept as-is),
+#   4. Copies the image into root's podman storage if only your user has it
+#      (before anything is written, so a failed copy leaves the disk untouched).
+#   5. Shows a summary and waits for you to type the disk name.
+#   6. mkfs.btrfs the root container (the ESP, /boot and swap are kept as-is),
 #      mounts root -> /boot -> /boot/efi in that order.
-#   6. Copies the image into root's podman storage if only your user has it.
 #   7. Runs bootc install to-filesystem with GRUB, the separate /boot, and the
 #      LUKS + resume kernel arguments.
 #   8. Writes /etc/crypttab and the swap fstab line into the new deployment so
@@ -68,16 +69,15 @@ by_uuid() {  # UUID -> /dev/xxx (fails if absent)
     readlink -f "$p"
 }
 
-disk_of() {  # any block device (partition or dm) -> its whole-disk name, e.g. nvme0n1
-    local dev="$1" type pk
-    dev=$(readlink -f "$dev")
-    while :; do
-        type=$(lsblk -dno TYPE "$dev")
-        [[ "$type" == "disk" ]] && { basename "$dev"; return; }
-        pk=$(lsblk -dno PKNAME "$dev" | head -1)
-        [[ -n "$pk" ]] || die "cannot find parent disk of $dev"
-        dev="/dev/$pk"
-    done
+disk_of() {  # any block device (partition, LUKS/dm, …) -> its one whole disk, e.g. nvme0n1
+    local dev disks
+    dev=$(readlink -f "$1")
+    # -s walks the inverse tree (device -> its parents). PKNAME is empty for
+    # dm devices (an unlocked LUKS root), so it cannot be used to climb.
+    disks=$(lsblk -snro NAME,TYPE "$dev" | awk '$2=="disk"{print $1}' | sort -u)
+    [[ -n "$disks" ]] || die "cannot find parent disk of $dev"
+    [[ $(wc -l <<<"$disks") -eq 1 ]] || die "$dev spans several disks ($(tr '\n' ' ' <<<"$disks")) — refusing"
+    echo "$disks"
 }
 
 unmount_all_from() {  # unmount every mountpoint whose source is this device
@@ -159,38 +159,7 @@ if [[ -n "$SWAP_DM" ]]; then
     fi
 fi
 
-# ─── 4. Confirm ────────────────────────────────────────────────────────
-log "About to install"
-cat <<EOF
-    Disk            /dev/$TARGET_DISK  (will NOT be repartitioned)
-    ESP             $EFI_PART   UUID=$EFI_UUID        kept
-    /boot           $BOOT_PART   UUID=$BOOT_UUID       kept (bootc writes kernels + grub.cfg here)
-    root LUKS       $ROOT_LUKS_PART  -> $ROOT_DM     *** btrfs WILL BE REFORMATTED ***
-    swap LUKS       ${SWAP_LUKS_PART:-none}  ${SWAP_DM:+-> $SWAP_DM (swap UUID $SWAP_FS_UUID)}
-    Image           $IMAGE
-    Updates from    $TARGET_IMGREF
-    Bootloader      grub (BLS entries on /boot, shim+grub on the ESP)
-    Test install    $([[ "${TEST_INSTALL:-0}" == 1 ]] && echo "yes (Syncthing stays off; use scripts/test/syncthing-2tb-check.sh)" || echo "no (real install)")
-    Finalize        $([[ "$SKIP_FINALIZE" == 1 ]] && echo "skipped (no fstrim — USB/DAS disk)" || echo "yes")
-EOF
-if [[ "$ASSUME_YES" != 1 ]]; then
-    printf '\nType the disk name (%s) to continue: ' "$TARGET_DISK"
-    read -r answer
-    [[ "$answer" == "$TARGET_DISK" ]] || die "aborted"
-fi
-
-# ─── 5. Format root, mount in order ────────────────────────────────────
-log "Formatting root and mounting"
-mkfs.btrfs -f -L fedora_root "$ROOT_DM" >/dev/null
-mkdir -p "$MOUNT_ROOT"
-mount -o compress=zstd:1 "$ROOT_DM" "$MOUNT_ROOT"
-mkdir -p "$MOUNT_ROOT/boot"
-mount "$BOOT_PART" "$MOUNT_ROOT/boot"
-mkdir -p "$MOUNT_ROOT/boot/efi"
-mount "$EFI_PART" "$MOUNT_ROOT/boot/efi"
-findmnt -R "$MOUNT_ROOT" -o TARGET,SOURCE,FSTYPE
-
-# ─── 6. Image in root podman storage ───────────────────────────────────
+# ─── 4. Image in root podman storage (before anything is written) ─────
 log "Checking image $IMAGE"
 if ! podman image exists "$IMAGE"; then
     if [[ -n "${SUDO_USER:-}" ]] && sudo -u "$SUDO_USER" podman image exists "$IMAGE"; then
@@ -202,6 +171,38 @@ if ! podman image exists "$IMAGE"; then
 fi
 podman run --rm "$IMAGE" test -x /usr/bin/bootc || die "$IMAGE has no /usr/bin/bootc"
 info "image id $(podman image inspect "$IMAGE" --format '{{.Id}}' | cut -c1-12)"
+
+# ─── 5. Confirm ────────────────────────────────────────────────────────
+log "About to install"
+cat <<EOF
+    Disk            /dev/$TARGET_DISK  (will NOT be repartitioned)
+    ESP             $EFI_PART   UUID=$EFI_UUID        kept
+    /boot           $BOOT_PART   UUID=$BOOT_UUID       kept (bootc writes kernels + grub.cfg here)
+    root LUKS       $ROOT_LUKS_PART  -> $ROOT_DM     *** btrfs WILL BE REFORMATTED ***
+    swap LUKS       ${SWAP_LUKS_PART:-none}  ${SWAP_DM:+-> $SWAP_DM (swap UUID $SWAP_FS_UUID)}
+    Image           $IMAGE  (id $(podman image inspect "$IMAGE" --format '{{.Id}}' | cut -c1-12))
+    Updates from    $TARGET_IMGREF
+    Bootloader      grub (BLS entries on /boot, shim+grub on the ESP)
+    Test install    $([[ "${TEST_INSTALL:-0}" == 1 ]] && echo "yes (Syncthing stays off; use scripts/test/syncthing-2tb-check.sh)" || echo "no (real install)")
+    Finalize        $([[ "$SKIP_FINALIZE" == 1 ]] && echo "skipped (no fstrim — USB/DAS disk)" || echo "yes")
+EOF
+if [[ "$ASSUME_YES" != 1 ]]; then
+    printf '\nType the disk name (%s) to continue: ' "$TARGET_DISK"
+    read -r answer
+    [[ "$answer" == "$TARGET_DISK" ]] || die "aborted"
+fi
+
+# ─── 6. Format root, mount in order ────────────────────────────────────
+log "Formatting root and mounting"
+mkfs.btrfs -f -L fedora_root "$ROOT_DM" >/dev/null
+mkdir -p "$MOUNT_ROOT"
+mount -o compress=zstd:1 "$ROOT_DM" "$MOUNT_ROOT"
+mkdir -p "$MOUNT_ROOT/boot"
+mount "$BOOT_PART" "$MOUNT_ROOT/boot"
+mkdir -p "$MOUNT_ROOT/boot/efi"
+mount "$EFI_PART" "$MOUNT_ROOT/boot/efi"
+findmnt -R "$MOUNT_ROOT" -o TARGET,SOURCE,FSTYPE
+
 
 # ─── 7. bootc install ──────────────────────────────────────────────────
 log "bootc install to-filesystem"
