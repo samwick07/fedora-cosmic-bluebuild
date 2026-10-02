@@ -1,7 +1,5 @@
 # Cosign private key — NEVER commit this. Keep a copy off the laptop (see docs/local-build.md).
 cosign.key
-cosign.key.encrypted-old
-cosign.pub.encrypted-old
 cosign.private
 
 # Per-machine install targets (UUIDs of the disk being installed to)
