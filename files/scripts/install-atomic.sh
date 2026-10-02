@@ -347,6 +347,7 @@ if [[ -n "$CREATE_USER" ]] && ! grep -q "^$CREATE_USER:" "$DEPLOY/etc/passwd"; t
     groups="wheel"
     grep -q '^libvirt:' "$DEPLOY/etc/group" && groups="$groups,libvirt"
     useradd --root "$DEPLOY" --uid "$CREATE_USER_UID" --user-group --groups "$groups" \
+            -K CREATE_MAIL_SPOOL=no \
             --shell /bin/bash --no-create-home --home-dir "/var/home/$CREATE_USER" "$CREATE_USER"
     mkdir -p "$STATEROOT/var/home/$CREATE_USER"
     cp -a "$DEPLOY/etc/skel/." "$STATEROOT/var/home/$CREATE_USER/"
@@ -371,9 +372,41 @@ if [[ -n "$CREATE_USER" ]] && ! grep -q "^$CREATE_USER:" "$DEPLOY/etc/passwd"; t
             echo "  mismatch or empty, try again"
         done
     fi
-    printf '%s:%s\n%s:%s\n' "$CREATE_USER" "$pw" root "$pw" | chpasswd --root "$DEPLOY"
+    # Not chpasswd --root: on an SELinux host it runs as passwd_t, which may not
+    # write the target's /etc (labelled etc_t until the relabel below) — install
+    # run 5 died there. Hash from stdin (never in argv), then set the shadow
+    # fields in place (same inode/mode); the hash travels via the environment.
+    HASH_USER=$(printf '%s' "$pw" | openssl passwd -6 -stdin)   # separate salts
+    HASH_ROOT=$(printf '%s' "$pw" | openssl passwd -6 -stdin)
     unset pw pw2
+    [[ "$HASH_USER" == '$6$'* && "$HASH_ROOT" == '$6$'* ]] || die "could not hash the password (openssl passwd -6)"
+    export HASH_USER HASH_ROOT
+    tmp=$(mktemp -p /run install-shadow.XXXXXX)
+    awk -F: -v OFS=: -v u="$CREATE_USER" -v d="$(( $(date +%s) / 86400 ))" '
+        $1 == u      { $2 = ENVIRON["HASH_USER"]; $3 = d }
+        $1 == "root" { $2 = ENVIRON["HASH_ROOT"]; $3 = d }
+        { print }' "$DEPLOY/etc/shadow" > "$tmp"
+    unset HASH_USER HASH_ROOT
+    [[ $(awk -F: -v u="$CREATE_USER" '($1 == u || $1 == "root") && $2 ~ /^\$6\$/' "$tmp" | wc -l) -eq 2 ]] \
+        || { rm -f "$tmp"; die "shadow update failed: $CREATE_USER/root not both set"; }
+    cat "$tmp" > "$DEPLOY/etc/shadow"; rm -f "$tmp"
     info "user $CREATE_USER created (groups: $groups); root password set to the same value"
+fi
+
+# SELinux labels for everything written into the new /etc (passwd, shadow,
+# group, crypttab, fstab, hostname, site.env …): the host's policy labelled
+# them etc_t, and a booted system with /etc/shadow as etc_t cannot change
+# passwords. Relabel with the IMAGE's file_contexts, then check the two that matter.
+fc="$DEPLOY/etc/selinux/targeted/contexts/files/file_contexts"
+if command -v setfiles >/dev/null && [[ -f "$fc" ]]; then
+    setfiles -F -r "$DEPLOY" "$fc" "$DEPLOY/etc" 2>/dev/null || true
+    for f in passwd:passwd_file_t shadow:shadow_t; do
+        t=$(stat -c %C "$DEPLOY/etc/${f%%:*}" | cut -d: -f3)
+        [[ "$t" == "${f##*:}" ]] || die "/etc/${f%%:*} in the new system is labelled $t, not ${f##*:} — after first boot run: sudo restorecon -RF /etc"
+    done
+    info "/etc labelled (passwd_file_t, shadow_t verified)"
+else
+    info "no setfiles/file_contexts — after first boot run: sudo restorecon -RF /etc"
 fi
 
 # ─── 10. Done ──────────────────────────────────────────────────────────
