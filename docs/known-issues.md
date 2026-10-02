@@ -6,11 +6,10 @@ moves here when it is a lasting limitation rather than something to fix.
 
 ## Open — verify on the test drive
 
-- **Restore into the read-only Atomic root.** The allowlist restore writes
-  `/home/<user>/…` with `--target /`; restic follows the `/home -> var/home`
-  symlink (tested). Not yet seen on a real install: whether restic warns when
-  it restores the metadata of `/home` itself. Fallback if it fails:
-  `restic restore … --target /var` (lands in `/var/home/<user>/…`).
+- **First real restore.** `post-install-setup.sh` restores home paths into `/var/home` (restoring
+  through the `/home` symlink on the read-only root makes restic exit 1 on `lchown`, reproduced in a
+  container) and only from host `SITE_HOSTNAME`'s newest snapshot. Tested in containers; the first
+  real run is Phase 4 on the test drive.
 - **Flatpak browsers and the CAC.** Native Firefox loads OpenSC through p11-kit;
   whether the Chrome flatpak sees the card through `--socket=pcsc` must be tested.
 - **Rechunking / zstd.** Not enabled: per-update download size not measured yet
@@ -18,6 +17,9 @@ moves here when it is a lasting limitation rather than something to fix.
 - **Desktop image (`recipe-dsktp.yml`).** Builds and validates; never installed.
 
 ## Lasting caveats (worked around)
+
+- **restic `latest` means "newest of any host".** Test-drive backups (`<name>-test`) are newer than
+  the real machine's; restores and docs always use `latest --host <SITE_HOSTNAME>`.
 
 - **BlueBuild CLI 0.9.37 local builds sign for `localhost/<image>`.** `bluebuild
   build` drops `--registry` before generating the Containerfile.

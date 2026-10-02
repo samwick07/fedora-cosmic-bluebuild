@@ -7,7 +7,7 @@
 #   restic  (DAS)            -> DATA, by allowlist : this script, step 2
 #   chezmoi (dotfiles repo)  -> user config + brew + distrobox + flatpak overrides : step 6
 # Nothing else from the old ~ is restored. Pull anything you miss later with
-#   sudo restic -r <repo> restore latest --target / --include ~/<path>
+#   sudo restic -r <repo> restore latest --host <SITE_HOSTNAME> --target /var --include /home/<user>/<path>
 #
 # Shipped in the image at /usr/bin/post-install-setup.sh. Idempotent; completed
 # steps are recorded in /var/lib/post-install-setup/.
@@ -58,6 +58,15 @@ run_as_user() {
         XDG_RUNTIME_DIR="/run/user/$(uid)" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(uid)/bus" "$@"
 }
 restic_root() { RESTIC_REPOSITORY="${RESTIC_REPO}" RESTIC_PASSWORD_FILE="${RESTIC_PASSFILE}" restic "$@"; }
+# Restore from the real machine's newest snapshot. A test install backs up as
+# "<SITE_HOSTNAME>-test"; a bare `latest` would pick that sparse snapshot.
+SNAP=(latest)
+[[ -n "${SITE_HOSTNAME:-}" ]] && SNAP=(latest --host "${SITE_HOSTNAME}")
+# /home is a symlink on Atomic's READ-ONLY root. Restoring through it restores
+# the files but then fails (lchown on the symlink: EROFS, restic exits 1), so
+# home paths go into the directory that really holds home (/var), the rest to /.
+restore_target() { if [[ "$1" == /home/* && -L /home ]]; then dirname "$(readlink -f /home)"; else echo /; fi; }
+restic_restore() { local path="$1"; shift; restic_root restore "${SNAP[@]}" --target "$(restore_target "$path")" --include "$path" "$@"; }
 step_done()      { [[ -f "${STATE_DIR}/${1}.done" ]]; }
 mark_step_done() { mkdir -p "${STATE_DIR}"; touch "${STATE_DIR}/${1}.done"; }
 
@@ -134,7 +143,7 @@ step2_restore() {
 
     if [[ ! -f "${RESTIC_PASSFILE}" ]]; then
         echo "  Password file not found. Restoring ~/.restic first (enter the repo passphrase when asked)."
-        RESTIC_REPOSITORY="${RESTIC_REPO}" restic restore latest --target / --include "${USER_HOME}/.restic/" \
+        RESTIC_REPOSITORY="${RESTIC_REPO}" restic restore "${SNAP[@]}" --target "$(restore_target "${USER_HOME}/.restic")" --include "${USER_HOME}/.restic/" \
             || { fail "Could not restore the password file."; exit 1; }
         [[ -f "${RESTIC_PASSFILE}" ]] || { fail "restore ran but ${RESTIC_PASSFILE} is still missing"; exit 1; }
         chown -R "${TARGET_USER}:${TARGET_USER}" "${USER_HOME}/.restic"; chmod 700 "${USER_HOME}/.restic"; chmod 600 "${RESTIC_PASSFILE}"
@@ -156,9 +165,9 @@ step2_restore() {
         fi
         echo "  restoring ${path} ..."
         if [[ "${path}" == */.local/state/syncthing ]]; then
-            restic_root restore latest --target / --include "${path}" --exclude "${path}/*.log" --exclude "${path}/index-v2"
+            restic_restore "${path}" --exclude "${path}/*.log" --exclude "${path}/index-v2"
         else
-            restic_root restore latest --target / --include "${path}"
+            restic_restore "${path}"
         fi
         [[ -e "${path}" ]] && ok "${path}" || warn "${path} not in snapshot — skipped"
     done < "${ALLOWLIST}"
@@ -169,7 +178,7 @@ step2_restore() {
     if [[ -n "$(ls -A /etc/NetworkManager/system-connections 2>/dev/null)" ]]; then
         skip "NetworkManager connections already present"
     else
-        restic_root restore latest --target / --include "/etc/NetworkManager/" && {
+        restic_restore "/etc/NetworkManager/" && {
             chmod 600 /etc/NetworkManager/system-connections/* 2>/dev/null || true
             systemctl reload NetworkManager || true
             ok "NetworkManager connections restored"; }
@@ -204,13 +213,13 @@ step5_vms() {
     systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.socket virtnodedevd.socket virtsecretd.socket virtinterfaced.socket
     id -nG "${TARGET_USER}" | grep -qw libvirt || { usermod -aG libvirt "${TARGET_USER}"; ok "added ${TARGET_USER} to libvirt (re-login)"; }
 
-    [[ -n "$(ls -A /etc/libvirt/qemu 2>/dev/null)" ]] || { restic_root restore latest --target / --include "/etc/libvirt/"; ok "/etc/libvirt restored"; }
+    [[ -n "$(ls -A /etc/libvirt/qemu 2>/dev/null)" ]] || { restic_restore "/etc/libvirt/"; ok "/etc/libvirt restored"; }
     if [[ ! -f /var/lib/libvirt/vm-images/Win11VM.qcow2 ]]; then
         echo "  Restoring Win11VM.qcow2 (~512 GB, slow)..."
-        restic_root restore latest --target / --include "/var/lib/libvirt/vm-images/"; ok "VM disk restored"
+        restic_restore "/var/lib/libvirt/vm-images/"; ok "VM disk restored"
     else skip "Win11VM.qcow2 present"; fi
-    restic_root restore latest --target / --include "/var/lib/libvirt/qemu/nvram/" 2>/dev/null && ok "OVMF NVRAM restored" || warn "no NVRAM in backup (fresh UEFI vars)"
-    restic_root restore latest --target / --include "/var/lib/libvirt/swtpm/"     2>/dev/null && ok "swtpm state restored" || warn "no swtpm state in backup (BitLocker may ask for its recovery key)"
+    restic_restore "/var/lib/libvirt/qemu/nvram/" 2>/dev/null && ok "OVMF NVRAM restored" || warn "no NVRAM in backup (fresh UEFI vars)"
+    restic_restore "/var/lib/libvirt/swtpm/"     2>/dev/null && ok "swtpm state restored" || warn "no swtpm state in backup (BitLocker may ask for its recovery key)"
     restorecon -R /var/lib/libvirt 2>/dev/null || true
 
     local V="virsh -c qemu:///system"
@@ -256,7 +265,7 @@ step7_tailscale() {
         read -rp "  Restore old identity? (y/N) " r
         if [[ "${r,,}" == y ]]; then
             systemctl stop tailscaled
-            restic_root restore latest --target / --include "/var/lib/tailscale/" && ok "tailscale state restored"
+            restic_restore "/var/lib/tailscale/" && ok "tailscale state restored"
             systemctl start tailscaled
         fi
         tailscale up || warn "tailscale up needs an interactive login — run it yourself"
@@ -290,8 +299,8 @@ Next:
   3. Syncthing: open http://127.0.0.1:8384 — the desktop should reconnect within a minute
   4. Test hibernation:  systemctl hibernate
   5. Anything you miss from the old machine:
-       sudo restic -r ${RESTIC_REPO} ls latest ${USER_HOME} | less
-       sudo restic -r ${RESTIC_REPO} restore latest --target / --include ${USER_HOME}/<path>
+       sudo restic -r ${RESTIC_REPO} ls ${SNAP[*]} ${USER_HOME} | less
+       sudo restic -r ${RESTIC_REPO} restore ${SNAP[*]} --target $(restore_target "${USER_HOME}/x") --include ${USER_HOME}/<path>
 EOF
 }
 main "$@"

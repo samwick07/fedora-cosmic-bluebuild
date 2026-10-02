@@ -33,7 +33,7 @@ See `docs/bootloader.md` for why systemd-boot is not used.
    r snapshots --latest 3
    r check --read-data-subset=10%           # ~1 h on USB; do the full --read-data once before Phase 5
    # dry-run restore of something small, to prove passphrase + syntax
-   r restore latest --target /tmp/rt --include /home/$USER/.ssh && ls -la /tmp/rt/home/$USER/.ssh && sudo rm -rf /tmp/rt
+   r restore latest --host frmwrk --target /tmp/rt --include /home/$USER/.ssh && ls -la /tmp/rt/home/$USER/.ssh && sudo rm -rf /tmp/rt
    ```
    If the backup script on the DAS is older than `backup/frmwrk_backup_command.sh`
    in this repo, copy the repo versions over and run a backup:
@@ -125,12 +125,16 @@ If it fails, the most useful evidence is the bootc output plus
 `sudo findmnt -R /mnt/atomic-target`. Fix, re-run: the script reformats the
 btrfs root each time, so a half-written target is never a problem.
 
-Behind the scenes it does: `mkfs.btrfs` → mount root, `/boot`, `/boot/efi` →
-`bootc install to-filesystem --bootloader grub --boot-mount-spec UUID=<boot>
---karg rd.luks.uuid=<root> --karg rd.luks.uuid=<swap> --karg resume=UUID=<swap-fs>`
-→ writes `/etc/crypttab`, `/boot`, `/boot/efi` and swap lines into the new
-deployment's `/etc/fstab` → creates the `SITE_USER` user + passwords → copies the
-target `.env` and `site.env` to `/etc/fedora-cosmic-atomic/` on the new system.
+Behind the scenes it does: reformat ESP + `/boot` (same UUIDs) and `mkfs.btrfs` the root
+→ mount root, `/boot`, `/boot/efi` → `bootc install to-filesystem --bootloader none
+--boot-mount-spec UUID=<boot> --karg rd.luks.uuid=<root> --karg rd.luks.uuid=<swap>
+--karg resume=UUID=<swap-fs>` → `bootupctl backend install --component EFI` (shim, grub,
+the `EFI/BOOT` fallback; **no** firmware update — efivars is read-only in the install
+containers and the entries are verified unchanged) → writes `/etc/crypttab` and the swap
+line into the new deployment's `/etc/fstab` (bootc writes `/boot`, read-only by design) →
+copies the target `.env` and `site.env` to `/etc/fedora-cosmic-atomic/`, sets the hostname
+→ creates the `SITE_USER` user, sets both passwords (openssl hashes) → relabels the new
+`/etc` with the image's SELinux contexts. A full run (install run 8, 2026-10-02) takes ~5 min.
 
 ---
 
@@ -162,7 +166,8 @@ target `.env` and `site.env` to `/etc/fedora-cosmic-atomic/` on the new system.
 2. Log in as your user (**`SITE_USER`**) with the password you typed during the install
    (the script created the user, uid 1000, in `wheel` and `libvirt`, and gave
    root the same password). There is no first-run wizard on the bootc path.
-3. Connect to Wi-Fi. Open the terminal (COSMIC Terminal; Ghostty is in the image too).
+3. Connect to Wi-Fi (the saved profiles come back in Phase 4). Open the terminal
+   (COSMIC Terminal; Ghostty is in the image too).
 4. Sanity:
    ```bash
    bootc status                     # image: ghcr.io/samwick07/fedora-cosmic-frmwrk:latest
@@ -173,7 +178,14 @@ target `.env` and `site.env` to `/etc/fedora-cosmic-atomic/` on the new system.
    cosmic-report "first boot"       # state snapshot -> ~/migration-prep/logs/ (exists after Phase 4 step 2; else ~/cosmic-reports)
    ```
    Start the day's entry in `JOURNAL.md` (see "Recording what happens" below).
-5. If the DAS is not auto-mounted, click it in Files (unlock) so it is at
+5. **Update before restoring.** The installed image is whatever was local at install time;
+   `post-install-setup.sh` and the update timer get fixes through the registry:
+   ```bash
+   sudo bootc upgrade              # stages the newest signed image (first real test of the update path)
+   systemctl reboot                # LUKS passphrase again; bootc status shows the new digest as booted
+   ```
+   If the new image misbehaves: `sudo bootc rollback && systemctl reboot`.
+6. If the DAS is not auto-mounted, click it in Files (unlock) so it is at
    `/run/media/$USER/DAS`. Otherwise step 1 of the next script unlocks it.
 
 ---
@@ -189,9 +201,9 @@ Steps, in order (each idempotent; `--step N` reruns one, `--check` reports):
 | # | Does | Needs |
 | --- | --- | --- |
 | 1 | Mounts the DAS by LUKS UUID | DAS attached, passphrase |
-| 2 | Restores `~/.restic` (prompts for the repo passphrase), then every path in `/etc/fedora-cosmic-atomic/restore-allowlist.txt` in order — Syncthing data folders, `.ssh`/`.gnupg`/`.config/gh`, `.claude`/`.hermes`/`migration-prep`, and **last** the Syncthing identity; plus `/etc/NetworkManager` | hours for ~1.4 TiB |
+| 2 | Restores `~/.restic` (prompts for the repo passphrase), then every path in `/etc/fedora-cosmic-atomic/restore-allowlist.txt` in order — Syncthing data folders, `.ssh`/`.gnupg`/`.config/gh`, `.claude`/`.hermes`/`migration-prep`, and **last** the Syncthing identity; plus `/etc/NetworkManager`. Always from the newest snapshot of host `SITE_HOSTNAME` (never a `-test` one); home paths are restored into `/var/home` directly (`/home` is a symlink on the read-only root) | hours for ~1.4 TiB |
 | 3 | Verifies hibernation (karg, swap, SELinux); repairs on the Anaconda path | — |
-| 4 | CAC system half: pcscd, DoD roots into the system trust | cert bundle from step 2 |
+| 4 | CAC system half: pcscd, DoD roots into the system trust | network (downloads + verifies the public DoD bundle) |
 | 5 | libvirt: modular daemons, `/etc/libvirt`, `Win11VM.qcow2` (512 GB), NVRAM + swtpm state, defines the VM | — |
 | 6 | **User layer**: `chezmoi init --apply git@github.com:samwick07/dotfiles.git`. Its `run_once` scripts install Homebrew + `~/.Brewfile`, `distrobox assemble` the `dev`/`claude`/`rocm` containers, apply flatpak overrides, run `setup-cac.sh --user`, enable the Syncthing user service | SSH key from step 2; network; ~6 GB of pulls |
 | 7 | Tailscale: restore the old node identity or `tailscale up` as a new node | interactive |

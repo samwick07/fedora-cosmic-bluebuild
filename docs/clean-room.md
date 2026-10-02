@@ -37,8 +37,9 @@ backup. When you miss something:
 
 ```bash
 R=/run/media/$USER/DAS/frmwrk-restic-repo
-sudo restic -r $R ls latest /home/$USER/.config | less
-sudo restic -r $R restore latest --target / --include /home/$USER/.config/darktable
+sudo restic -r $R ls latest --host frmwrk /home/$USER/.config | less
+# /home is a symlink on Atomic's read-only root: restore home paths into /var
+sudo restic -r $R restore latest --host frmwrk --target /var --include /home/$USER/.config/darktable
 sudo chown -R $USER: /home/$USER/.config/darktable
 ```
 

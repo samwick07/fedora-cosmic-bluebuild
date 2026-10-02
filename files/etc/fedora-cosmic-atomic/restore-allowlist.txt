@@ -2,7 +2,7 @@
 # IN THIS ORDER. One path per line: ~/ = the user's home (/home/<SITE_USER>),
 # anything else is absolute; '#' comments; blank lines ignored.
 # Everything not listed stays in the backup and is pulled on demand:
-#   sudo restic -r <repo> restore latest --target / --include /home/<user>/<path>
+#   sudo restic -r <repo> restore latest --host <SITE_HOSTNAME> --target /var --include /home/<user>/<path>
 #
 # Clean-room rule: DATA is restored, application STATE is not. Config comes from
 # the chezmoi dotfiles repo; app state is recreated by the app or fetched later.

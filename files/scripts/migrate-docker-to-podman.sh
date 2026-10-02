@@ -119,7 +119,7 @@ migrate_volumes() {
         if [[ ! -d "${docker_path}" ]]; then
             warn "Docker volume '${vol}' not found at ${docker_path}"
             echo "  If you need this data, restore from restic:"
-            echo "    sudo restic restore latest --target / --include '${DOCKER_VOLUME_DIR}/${vol}/'"
+            echo "    sudo restic restore latest --host <SITE_HOSTNAME> --target / --include '${DOCKER_VOLUME_DIR}/${vol}/'"
             continue
         fi
 
@@ -159,7 +159,7 @@ migrate_compose() {
     if [[ ! -f "${COMPOSE_DIR}/docker-compose.yaml" ]]; then
         fail "Compose file not found at ${COMPOSE_DIR}/docker-compose.yaml"
         echo "  Restore from restic:"
-        echo "    sudo restic restore latest --target / --include '/home/${USER}/Documents/00_Projects/DockerProjects/'"
+        echo "    sudo restic restore latest --host <SITE_HOSTNAME> --target /var --include '/home/${USER}/Documents/00_Projects/DockerProjects/'"
         return 1
     fi
     ok "Compose file found: ${COMPOSE_DIR}/docker-compose.yaml"
