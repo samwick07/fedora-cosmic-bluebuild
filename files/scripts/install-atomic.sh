@@ -25,8 +25,9 @@
 #      — a previous OS's boot entries and bootupd state there break bootc —
 #      and mkfs.btrfs the root container (partition table, LUKS and swap kept),
 #      mounts root -> /boot -> /boot/efi in that order.
-#   7. Runs bootc install to-filesystem with GRUB, the separate /boot, and the
-#      LUKS + resume kernel arguments.
+#   7. Runs bootc install to-filesystem (separate /boot, LUKS + resume kargs,
+#      --bootloader none), then bootupd for the EFI files only. The firmware's
+#      boot entries are never written: efivars is read-only in both containers.
 #   8. Writes /etc/crypttab and the swap fstab line into the new deployment so
 #      the first boot unlocks both containers and activates swap.
 #   9. Creates the login user (bootc creates none) and sets its + root's password.
@@ -197,7 +198,7 @@ cat <<EOF
     Image           $IMAGE  (id $(podman image inspect "$IMAGE" --format '{{.Id}}' | cut -c1-12))
     Updates from    $TARGET_IMGREF
     Bootloader      grub (BLS entries on /boot, shim+grub on the ESP)
-    Firmware        boot entries untouched (efibootmgr stubbed); the disk boots via its ESP fallback
+    Firmware        never written (efivars read-only; bootupd without --update-firmware); boots via ESP fallback
     Test install    $([[ "${TEST_INSTALL:-0}" == 1 ]] && echo "yes (Syncthing stays off; use scripts/test/syncthing-2tb-check.sh)" || echo "no (real install)")
     Hostname        $(if [[ -z "${SITE_HOSTNAME:-}" ]]; then echo "(not set — add SITE_HOSTNAME to site.env)"; elif [[ "${TEST_INSTALL:-0}" == 1 ]]; then echo "$SITE_HOSTNAME-test"; else echo "$SITE_HOSTNAME"; fi)
     Finalize        $([[ "$SKIP_FINALIZE" == 1 ]] && echo "skipped (no fstrim — USB/DAS disk)" || echo "yes")
@@ -241,53 +242,63 @@ fi
 FINALIZE=()
 [[ "$SKIP_FINALIZE" == 1 ]] && FINALIZE=(--skip-finalize)
 
-# bootupd (run by bootc) would edit the firmware's boot entries: it deletes
-# every entry labelled "Fedora" — on ANY disk, including the running system's —
-# and creates a new one for the target. The firmware is never touched here:
-# efibootmgr inside the container is replaced by a no-op stub (/usr/sbin is a
-# symlink to /usr/bin in the image, so one mount covers both paths). The target
-# boots through its ESP fallback (EFI/BOOT/BOOTX64.EFI -> fbx64.efi creates its
-# own entry on first boot) or once via the firmware's boot menu.
-EFI_STUB=$(mktemp /var/tmp/efibootmgr-stub.XXXXXX)
-printf '#!/bin/sh\necho "efibootmgr (stubbed by install-atomic.sh — firmware untouched): $*" >&2\nexit 0\n' > "$EFI_STUB"
-chmod 0755 "$EFI_STUB"
-# Snapshot the entries anyway: the check after bootc proves nothing changed.
+# The firmware's boot entries (NVRAM) are NEVER written by this script.
+# bootc's own bootloader step runs bootupd with --update-firmware, which
+# deletes every entry labelled "Fedora" on ANY disk — the running system's too
+# — and creates one for the target (install runs 4 and 5). bootc 1.16 runs it
+# inside the new deployment, so stubbing efibootmgr in the container did not
+# help. Instead:
+#   1. bootc installs with --bootloader none (no bootupd at all);
+#   2. we run bootupd ourselves: EFI component only, WITHOUT --update-firmware
+#      (it only writes files: shim, grub, the EFI/BOOT fallback, grub.cfg);
+#   3. both containers see /sys/firmware/efi/efivars READ-ONLY, so any write
+#      by any tool fails loudly (EROFS) instead of changing NVRAM;
+#   4. the entries are compared before/after, and any change stops the script.
+# The target boots through its ESP fallback (EFI/BOOT/BOOTX64.EFI -> fbx64.efi
+# creates its own entry on first boot) or once via the firmware's boot menu.
+EFIVARS=/sys/firmware/efi/efivars
+CTR=(podman run --rm --privileged --pid=host --ipc=host
+     -v /var/lib/containers:/var/lib/containers    # REQUIRED: bootc reads its own image from there
+     -v /dev:/dev
+     -v "$MOUNT_ROOT:/target"
+     --security-opt label=type:unconfined_t)
 EFI_BEFORE=""
-if command -v efibootmgr >/dev/null && [[ -d /sys/firmware/efi ]]; then
+if [[ -d "$EFIVARS" ]]; then
+    CTR+=(--mount "type=bind,src=$EFIVARS,dst=$EFIVARS,ro=true")
     EFI_BEFORE=$(mktemp /var/tmp/efibootmgr-before.XXXXXX); efibootmgr -v > "$EFI_BEFORE" 2>/dev/null || true
 fi
+# Inside each container: refuse to start unless efivars really is read-only.
+RO_GUARD='if [ -d /sys/firmware/efi/efivars ] && ! findmnt -no OPTIONS /sys/firmware/efi/efivars | tr , "\n" | grep -qx ro; then echo "efivars is writable in the installer container — refusing" >&2; exit 97; fi; exec "$@"'
 
-# -v /var/lib/containers is REQUIRED: bootc reads its own image from there.
-podman run --rm --privileged --pid=host --ipc=host \
-    -v /var/lib/containers:/var/lib/containers \
-    -v /dev:/dev \
-    -v "$MOUNT_ROOT:/target" \
-    -v "$EFI_STUB:/usr/bin/efibootmgr:ro,z" \
-    --security-opt label=type:unconfined_t \
-    "$IMAGE" \
+log "bootc install to-filesystem (no bootloader step; firmware read-only)"
+"${CTR[@]}" "$IMAGE" bash -c "$RO_GUARD" _ \
     bootc install to-filesystem \
         --target-imgref "$TARGET_IMGREF" \
-        --bootloader grub \
+        --bootloader none \
         --boot-mount-spec "UUID=$BOOT_UUID" \
         "${KARGS[@]}" \
         "${FINALIZE[@]}" \
         /target
 
-rm -f "$EFI_STUB"
+log "Bootloader files: bootupd, EFI only, no firmware update"
+"${CTR[@]}" "$IMAGE" bash -c "$RO_GUARD" _ \
+    bootupctl backend install --write-uuid --component EFI --device "/dev/$TARGET_DISK" /target
+for f in efi/EFI/BOOT/BOOTX64.EFI efi/EFI/BOOT/fbx64.efi efi/EFI/fedora/shimx64.efi efi/EFI/fedora/grubx64.efi \
+         efi/EFI/fedora/grub.cfg grub2/grub.cfg bootupd-state.json; do
+    [[ -s "$MOUNT_ROOT/boot/$f" ]] || die "bootloader incomplete: /boot/$f missing on the target"
+done
+info "ESP: shim + grub + EFI/BOOT fallback present; /boot/grub2/grub.cfg present"
 
 # ─── 7b. Prove the firmware was not touched ────────────────────────────
 if [[ -n "$EFI_BEFORE" ]]; then
     EFI_AFTER=$(mktemp /var/tmp/efibootmgr-after.XXXXXX); efibootmgr -v > "$EFI_AFTER" 2>/dev/null || true
     efi_entries() { grep -E '^Boot[0-9A-F]{4}\*? |^BootOrder' "$1" | sort; }
-    if diff -q <(efi_entries "$EFI_BEFORE") <(efi_entries "$EFI_AFTER") >/dev/null; then
-        info "firmware boot entries: unchanged (verified)"
-    else
-        log "WARNING: the firmware boot entries CHANGED during the install — this must not happen; report it"
+    if ! diff -q <(efi_entries "$EFI_BEFORE") <(efi_entries "$EFI_AFTER") >/dev/null; then
         diff <(efi_entries "$EFI_BEFORE") <(efi_entries "$EFI_AFTER") | sed 's/^/    /' || true
-        info "Before-state kept at $EFI_BEFORE"
-        EFI_BEFORE=""   # keep the file
+        die "the firmware boot entries CHANGED during the install — must not happen. Before-state: $EFI_BEFORE"
     fi
-    rm -f "$EFI_AFTER" ${EFI_BEFORE:+"$EFI_BEFORE"}
+    rm -f "$EFI_AFTER" "$EFI_BEFORE"
+    info "firmware boot entries: unchanged (verified; efivars was read-only)"
 fi
 
 # ─── 8. crypttab + swap in the new deployment ──────────────────────────

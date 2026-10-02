@@ -142,7 +142,7 @@ target `.env` and `site.env` to `/etc/fedora-cosmic-atomic/` on the new system.
       target's ESP:
       ```bash
       sudo efibootmgr -v                       # must be IDENTICAL to the copy taken before the install
-                                               # (the installer stubs efibootmgr and verifies this itself)
+                                               # (efivars is read-only during the install; the installer verifies this itself)
       sudo mkdir -p /mnt/esp2 && sudo mount -o ro /dev/disk/by-uuid/<EFI_UUID> /mnt/esp2
       ls -R /mnt/esp2/EFI                      # need EFI/BOOT/BOOTX64.EFI + fbx64.efi, EFI/fedora/shimx64.efi + grubx64.efi
       sudo umount /mnt/esp2

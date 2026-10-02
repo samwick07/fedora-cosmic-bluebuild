@@ -29,12 +29,13 @@ moves here when it is a lasting limitation rather than something to fix.
   unsigned image). See `docs/hibernation-setup.md`.
 - **`podman pull` of `:latest` replaces the local manifest list** with a plain
   image; before a local `--push`: `podman manifest exists … || podman untag …`.
-- **bootupd rewrites the firmware's boot entries.** During `bootc install` it deletes every NVRAM
-  entry labelled "Fedora" — including the running system's — and creates one for the target (seen
-  in install run 4). `install-atomic.sh` therefore replaces `efibootmgr` inside the install container
-  with a no-op stub and verifies afterwards that the entries are unchanged. The target boots through
-  its ESP fallback (`EFI/BOOT/BOOTX64.EFI` → `fbx64.efi` creates the entry on first boot), or once via
-  the firmware's boot menu. (`--generic-image` would also skip the firmware but installs the BIOS
-  bootloader too, which this GPT layout has no BIOS boot partition for.)
+- **bootupd rewrites the firmware's boot entries.** With `--update-firmware`, which `bootc install`
+  passes, it deletes every NVRAM entry labelled "Fedora" — including the running system's — and
+  creates one for the target (install runs 4 and 5). bootc 1.16 runs it inside the new deployment,
+  so stubbing `efibootmgr` in the container did not help. `install-atomic.sh` now installs with
+  `--bootloader none`, runs `bootupctl backend install --component EFI` itself without
+  `--update-firmware`, mounts `/sys/firmware/efi/efivars` read-only in both containers (refusing to
+  start otherwise) and stops if the entries differ afterwards. The target boots through its ESP
+  fallback (`EFI/BOOT/BOOTX64.EFI` → `fbx64.efi` creates the entry on first boot) or once via F12.
 - **`install-atomic.sh` needs a disk prepared by `prepare-disk.sh` or Anaconda**
   (ESP, ext4 /boot, LUKS swap, LUKS root). It never repartitions.
