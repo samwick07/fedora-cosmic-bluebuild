@@ -158,12 +158,21 @@ for p in "$P3" "$P4"; do
     if [[ "$DRY" == 1 ]]; then info "[dry-run] cryptsetup luksFormat --type luks2 $p"
     else printf '%s' "$pass" | cryptsetup luksFormat -q --type luks2 --key-file=- "$p"; fi
 done
-swap_dm="prepare-swap-$$"
-if [[ "$DRY" == 1 ]]; then info "[dry-run] open $P3, mkswap -L fedora_swap, close"
+# Swap signature inside the swap container. With KEEP_OPEN=1 (install-to-disk.sh)
+# both containers stay open as luks-<UUID>, the names install-atomic.sh uses,
+# so the passphrase is not asked again.
+if [[ "$DRY" == 1 ]]; then info "[dry-run] open $P3, mkswap -L fedora_swap${KEEP_OPEN:+, keep open}"
 else
-    printf '%s' "$pass" | cryptsetup open --key-file=- "$P3" "$swap_dm"
-    mkswap -q -L fedora_swap "/dev/mapper/$swap_dm"
-    cryptsetup close "$swap_dm"
+    run udevadm settle
+    swap_uuid=$(cryptsetup luksUUID "$P3"); root_uuid=$(cryptsetup luksUUID "$P4")
+    printf '%s' "$pass" | cryptsetup open --key-file=- "$P3" "luks-$swap_uuid"
+    mkswap -q -L fedora_swap "/dev/mapper/luks-$swap_uuid"
+    if [[ "${KEEP_OPEN:-0}" == 1 ]]; then
+        printf '%s' "$pass" | cryptsetup open --key-file=- "$P4" "luks-$root_uuid"
+        info "containers left open for install-atomic.sh"
+    else
+        cryptsetup close "luks-$swap_uuid"
+    fi
 fi
 unset pass
 run udevadm settle

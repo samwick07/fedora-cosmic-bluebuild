@@ -108,10 +108,15 @@ cat scripts/targets/2tb-test.env
 ```bash
 cd ~/migration-prep/fedora-cosmic-bluebuild
 sudo efibootmgr -v > ~/migration-prep/logs/efibootmgr-before.txt   # Phase 3 compares against this
-sudo scripts/install-atomic.sh scripts/targets/2tb-test.env
+ls -l /dev/disk/by-id/ | grep -v part                              # the test drive's id
+scripts/install-to-disk.sh --check /dev/disk/by-id/<test-drive>     # expect: "Already configured"
+sudo scripts/install-to-disk.sh --test /dev/disk/by-id/<test-drive>
 ```
 
-The script prints the disk, every partition and what it will do, then waits for
+`install-to-disk.sh` checks the disk (new / contains data / already configured /
+refused — docs/disaster-recovery.md), writes the target file and runs
+`install-atomic.sh` (the older `sudo scripts/install-atomic.sh scripts/targets/2tb-test.env`
+does the same for this disk). It prints the disk, every partition and what it will do, then waits for
 you to type the disk name. It refuses to run if any protected UUID or the
 running OS is on the target. Expect ~5–10 minutes. It ends with
 `Installation complete on /dev/sdX`.

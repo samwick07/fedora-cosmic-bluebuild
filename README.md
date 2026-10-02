@@ -39,6 +39,7 @@ files/
   scripts/                  build-time scripts (configure-*.sh) and host scripts (-> /usr/bin)
   distrobox/distrobox.ini   `distrobox assemble` manifest: dev, claude, rocm (-> /usr/share/distrobox)
 scripts/
+  install-to-disk.sh -> files/scripts/  ONE command: checks the disk (blank / data / configured / refused), then the three below
   prepare-disk.sh  -> files/scripts/  blank/new disk -> ESP, /boot, LUKS swap, LUKS root (guarded; --selftest)
   make-target-env.sh -> files/scripts/  read a disk's UUIDs into a target .env
   install-atomic.sh -> files/scripts/  bootc install to-filesystem onto that layout (UUID-driven, guarded)
@@ -75,7 +76,7 @@ cosign.pub                  image verification key (private key: cosign.key, git
 | `/usr/bin/enable-hibernation.sh` | Verify/repair resume karg, LUKS karg, swap, SELinux module. `--check`. |
 | `/usr/bin/enable-vfio.sh` | Desktop: bind one NVMe controller to vfio-pci **by PCI address** (both T700s share an ID). |
 | `/usr/bin/win11-cac` | Hand the USB CAC reader to `Win11VM` and back (`attach`/`detach`/`status`); stops host pcscd while the VM has it. |
-| `/usr/bin/prepare-disk.sh`, `make-target-env.sh`, `install-atomic.sh` | New/replacement drive and reinstall tooling (`docs/disaster-recovery.md`); read `/etc/fedora-cosmic-atomic/site.env`. |
+| `/usr/bin/install-to-disk.sh` (+ `prepare-disk.sh`, `make-target-env.sh`, `install-atomic.sh`) | New/replacement drive and reinstall tooling (`docs/disaster-recovery.md`); read `/etc/fedora-cosmic-atomic/site.env`. |
 | `/usr/bin/cosmic-report` | State snapshot for the journal or an issue; `--public` replaces user/host/UUIDs/tailnet. |
 | `/usr/bin/migrate-docker-to-podman.sh` | One-time: Open WebUI / SearXNG volumes and compose stack from Docker to rootless podman. |
 

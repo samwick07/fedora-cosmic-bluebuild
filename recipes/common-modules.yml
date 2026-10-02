@@ -177,6 +177,8 @@ modules:
       - source: scripts/win11-cac.sh
         destination: /usr/bin/win11-cac
       # Reinstall / new-disk tooling and the report helper (docs/disaster-recovery.md)
+      - source: scripts/install-to-disk.sh
+        destination: /usr/bin/install-to-disk.sh
       - source: scripts/prepare-disk.sh
         destination: /usr/bin/prepare-disk.sh
       - source: scripts/make-target-env.sh
@@ -191,7 +193,7 @@ modules:
   # git does not reliably preserve the executable bit through the build context.
   - type: script@v2
     snippets:
-      - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report"
+      - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report"
       # The files module keeps the checkout's modes; with umask 077 these land 0600
       # and the user session / shells / distrobox assemble cannot read them.
       - "chmod 0644 /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt"
