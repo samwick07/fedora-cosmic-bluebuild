@@ -197,6 +197,7 @@ cat <<EOF
     Image           $IMAGE  (id $(podman image inspect "$IMAGE" --format '{{.Id}}' | cut -c1-12))
     Updates from    $TARGET_IMGREF
     Bootloader      grub (BLS entries on /boot, shim+grub on the ESP)
+    Firmware        boot entries untouched (efibootmgr stubbed); the disk boots via its ESP fallback
     Test install    $([[ "${TEST_INSTALL:-0}" == 1 ]] && echo "yes (Syncthing stays off; use scripts/test/syncthing-2tb-check.sh)" || echo "no (real install)")
     Hostname        $(if [[ -z "${SITE_HOSTNAME:-}" ]]; then echo "(not set — add SITE_HOSTNAME to site.env)"; elif [[ "${TEST_INSTALL:-0}" == 1 ]]; then echo "$SITE_HOSTNAME-test"; else echo "$SITE_HOSTNAME"; fi)
     Finalize        $([[ "$SKIP_FINALIZE" == 1 ]] && echo "skipped (no fstrim — USB/DAS disk)" || echo "yes")
@@ -240,10 +241,17 @@ fi
 FINALIZE=()
 [[ "$SKIP_FINALIZE" == 1 ]] && FINALIZE=(--skip-finalize)
 
-# bootupd (run by bootc) edits the firmware's boot entries: it deletes every
-# entry labelled "Fedora" — on ANY disk, including the running system's — and
-# creates a new "Fedora" entry for the target. Snapshot them so the damage can
-# be reported afterwards.
+# bootupd (run by bootc) would edit the firmware's boot entries: it deletes
+# every entry labelled "Fedora" — on ANY disk, including the running system's —
+# and creates a new one for the target. The firmware is never touched here:
+# efibootmgr inside the container is replaced by a no-op stub (/usr/sbin is a
+# symlink to /usr/bin in the image, so one mount covers both paths). The target
+# boots through its ESP fallback (EFI/BOOT/BOOTX64.EFI -> fbx64.efi creates its
+# own entry on first boot) or once via the firmware's boot menu.
+EFI_STUB=$(mktemp /var/tmp/efibootmgr-stub.XXXXXX)
+printf '#!/bin/sh\necho "efibootmgr (stubbed by install-atomic.sh — firmware untouched): $*" >&2\nexit 0\n' > "$EFI_STUB"
+chmod 0755 "$EFI_STUB"
+# Snapshot the entries anyway: the check after bootc proves nothing changed.
 EFI_BEFORE=""
 if command -v efibootmgr >/dev/null && [[ -d /sys/firmware/efi ]]; then
     EFI_BEFORE=$(mktemp /var/tmp/efibootmgr-before.XXXXXX); efibootmgr -v > "$EFI_BEFORE" 2>/dev/null || true
@@ -254,6 +262,7 @@ podman run --rm --privileged --pid=host --ipc=host \
     -v /var/lib/containers:/var/lib/containers \
     -v /dev:/dev \
     -v "$MOUNT_ROOT:/target" \
+    -v "$EFI_STUB:/usr/bin/efibootmgr:ro,z" \
     --security-opt label=type:unconfined_t \
     "$IMAGE" \
     bootc install to-filesystem \
@@ -264,22 +273,21 @@ podman run --rm --privileged --pid=host --ipc=host \
         "${FINALIZE[@]}" \
         /target
 
-# ─── 7b. Firmware boot entries bootupd removed ─────────────────────────
+rm -f "$EFI_STUB"
+
+# ─── 7b. Prove the firmware was not touched ────────────────────────────
 if [[ -n "$EFI_BEFORE" ]]; then
     EFI_AFTER=$(mktemp /var/tmp/efibootmgr-after.XXXXXX); efibootmgr -v > "$EFI_AFTER" 2>/dev/null || true
-    efi_entries() { grep -E '^Boot[0-9A-F]{4}\*? ' "$1" | sed -E 's/^Boot[0-9A-F]{4}\*? +//' | sort; }   # by content, not number
-    removed=$(comm -23 <(efi_entries "$EFI_BEFORE") <(efi_entries "$EFI_AFTER"))
-    if [[ -n "$removed" ]]; then
-        log "WARNING: bootupd removed these firmware boot entries"
-        grep -F "$removed" "$EFI_BEFORE" | grep -E '^Boot' | sed 's/^/    /'
-        info "If one of them is the system you are running NOW, recreate it before rebooting, e.g.:"
-        info "  sudo efibootmgr --create --disk /dev/<its disk> --part <its ESP number> --loader '\\EFI\\fedora\\shimx64.efi' --label 'Fedora <name>'"
-        info "(loader path as shown above; a label other than plain \"Fedora\" survives the next install)"
-        info "$(grep ^BootOrder "$EFI_AFTER")"
+    efi_entries() { grep -E '^Boot[0-9A-F]{4}\*? |^BootOrder' "$1" | sort; }
+    if diff -q <(efi_entries "$EFI_BEFORE") <(efi_entries "$EFI_AFTER") >/dev/null; then
+        info "firmware boot entries: unchanged (verified)"
     else
-        info "firmware boot entries: nothing removed"
+        log "WARNING: the firmware boot entries CHANGED during the install — this must not happen; report it"
+        diff <(efi_entries "$EFI_BEFORE") <(efi_entries "$EFI_AFTER") | sed 's/^/    /' || true
+        info "Before-state kept at $EFI_BEFORE"
+        EFI_BEFORE=""   # keep the file
     fi
-    rm -f "$EFI_BEFORE" "$EFI_AFTER"
+    rm -f "$EFI_AFTER" ${EFI_BEFORE:+"$EFI_BEFORE"}
 fi
 
 # ─── 8. crypttab + swap in the new deployment ──────────────────────────
@@ -376,6 +384,9 @@ umount -R "$MOUNT_ROOT"
 cat <<EOF
 
 === Installation complete on /dev/$TARGET_DISK ===
+The firmware's boot entries were not changed. The new disk boots through its
+ESP fallback loader (EFI/BOOT/BOOTX64.EFI); if the firmware does not list it,
+pick the disk once in the boot menu (F12) — shim then creates its own entry.
 
 Next:
   1. Target on USB (the test drive): check efibootmgr and the ESP fallback

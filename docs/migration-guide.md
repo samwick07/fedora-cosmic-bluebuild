@@ -141,11 +141,8 @@ target `.env` and `site.env` to `/etc/fedora-cosmic-atomic/` on the new system.
    1. Before powering off (2TB still on USB), check the boot entries and the
       target's ESP:
       ```bash
-      sudo efibootmgr -v                       # compare with the copy taken before the install.
-      # bootupd DELETES every entry labelled "Fedora" (the Workstation's too) and creates a new
-      # "Fedora" entry for the target. Recreate the Workstation's (install-atomic.sh prints what
-      # was removed), with a label other than plain "Fedora" so the next install keeps it:
-      #   sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --loader '\EFI\fedora\shim.efi' --label 'Fedora Workstation 4TB'
+      sudo efibootmgr -v                       # must be IDENTICAL to the copy taken before the install
+                                               # (the installer stubs efibootmgr and verifies this itself)
       sudo mkdir -p /mnt/esp2 && sudo mount -o ro /dev/disk/by-uuid/<EFI_UUID> /mnt/esp2
       ls -R /mnt/esp2/EFI                      # need EFI/BOOT/BOOTX64.EFI + fbx64.efi, EFI/fedora/shimx64.efi + grubx64.efi
       sudo umount /mnt/esp2
@@ -154,9 +151,10 @@ target `.env` and `site.env` to `/etc/fedora-cosmic-atomic/` on the new system.
       the disk after the swap. Do not hand-copy loaders; fix the install.
    2. Power off. Take the 4TB out of the NVMe slot (it stays on the desk,
       untouched) and put the 2TB in.
-   3. Power on. The firmware boots the only internal disk via its fallback
-      loader (`EFI/BOOT/BOOTX64.EFI`). Use **F12** only if it doesn't pick it
-      up. Everything is UUID-based, so the device path changing from `sdX`
+   3. Power on. The install created no firmware entry; the firmware boots the only
+      internal disk via its fallback loader (`EFI/BOOT/BOOTX64.EFI`), and shim's
+      `fbx64.efi` then creates the "Fedora" entry itself. If the firmware does not
+      pick the disk up, choose it once in the **F12** boot menu. Everything is UUID-based, so the device path changing from `sdX`
       to `nvme0n1` doesn't matter.
    4. Both LUKS containers prompt (once if the passphrases match). These are
       the containers that were already on the disk; the install keeps their
