@@ -157,12 +157,9 @@ targets_dir="$(dirname "$SITE_FILE")"
 if [[ "$targets_dir" == /etc/* ]]; then targets_dir=/var/lib/fedora-cosmic-atomic/targets; fi
 mkdir -p "$targets_dir"
 envfile="$targets_dir/auto-$name.env"
-"$HERE/make-target-env.sh" "$target" > "$envfile"
-{
-    echo "TEST_INSTALL=$TEST"
-    if [[ "$tran" == usb ]]; then echo "SKIP_FINALIZE=1"; else echo "SKIP_FINALIZE=0"; fi
-    echo "IMAGE=\"$IMAGE\""
-} >> "$envfile"                               # later lines override the generated defaults
+skip=0; [[ "$tran" == usb ]] && skip=1
+"$HERE/make-target-env.sh" "$target" \
+    | sed -E "s|^TEST_INSTALL=.*|TEST_INSTALL=$TEST|; s|^SKIP_FINALIZE=.*|SKIP_FINALIZE=$skip|; s|^IMAGE=.*|IMAGE=\"$IMAGE\"|" > "$envfile"
 head1 "Target file: $envfile"
 grep -E '^(TARGET_NAME|EFI_UUID|BOOT_UUID|ROOT_LUKS_UUID|SWAP_LUKS_UUID|TEST_INSTALL|SKIP_FINALIZE|IMAGE)=' "$envfile" | sed 's/^/    /'
 

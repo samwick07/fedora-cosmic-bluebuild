@@ -170,13 +170,18 @@ fi
 
 # ─── 4. Image in root podman storage (before anything is written) ─────
 log "Checking image $IMAGE"
-if ! podman image exists "$IMAGE"; then
-    if [[ -n "${SUDO_USER:-}" ]] && sudo -u "$SUDO_USER" podman image exists "$IMAGE"; then
-        info "copying from $SUDO_USER's podman storage (no download)"
-        sudo -u "$SUDO_USER" podman save "$IMAGE" --format oci-archive | podman load
-    else
-        die "image $IMAGE not found. Build it: bluebuild build -B podman recipes/recipe-frmwrk.yml"
-    fi
+# The user's copy is the one that was pulled + verified; root's may be stale
+# from an earlier run. Use the user's whenever the two differ.
+root_id=$(podman image inspect "$IMAGE" --format '{{.Id}}' 2>/dev/null || true)
+user_id=""
+[[ -n "${SUDO_USER:-}" ]] && user_id=$(sudo -u "$SUDO_USER" podman image inspect "$IMAGE" --format '{{.Id}}' 2>/dev/null || true)
+if [[ -n "$user_id" && "$user_id" != "$root_id" ]]; then
+    [[ -n "$root_id" ]] && info "root's copy (${root_id:0:12}) differs from $SUDO_USER's (${user_id:0:12}) — replacing it"
+    info "copying from $SUDO_USER's podman storage (no download)"
+    sudo -u "$SUDO_USER" podman save "$IMAGE" --format oci-archive | podman load
+    [[ $(podman image inspect "$IMAGE" --format '{{.Id}}') == "$user_id" ]] || die "copy failed: root's $IMAGE is not ${user_id:0:12}"
+elif [[ -z "$root_id" ]]; then
+    die "image $IMAGE not found in root's or ${SUDO_USER:-the user}'s podman storage — podman pull it (and cosign verify) first"
 fi
 podman run --rm "$IMAGE" test -x /usr/bin/bootc || die "$IMAGE has no /usr/bin/bootc"
 info "image id $(podman image inspect "$IMAGE" --format '{{.Id}}' | cut -c1-12)"
@@ -193,7 +198,7 @@ cat <<EOF
     Updates from    $TARGET_IMGREF
     Bootloader      grub (BLS entries on /boot, shim+grub on the ESP)
     Test install    $([[ "${TEST_INSTALL:-0}" == 1 ]] && echo "yes (Syncthing stays off; use scripts/test/syncthing-2tb-check.sh)" || echo "no (real install)")
-    Hostname        ${SITE_HOSTNAME:+$SITE_HOSTNAME$([[ "${TEST_INSTALL:-0}" == 1 ]] && echo -test)}${SITE_HOSTNAME:-(not set — add SITE_HOSTNAME to site.env)}
+    Hostname        $(if [[ -z "${SITE_HOSTNAME:-}" ]]; then echo "(not set — add SITE_HOSTNAME to site.env)"; elif [[ "${TEST_INSTALL:-0}" == 1 ]]; then echo "$SITE_HOSTNAME-test"; else echo "$SITE_HOSTNAME"; fi)
     Finalize        $([[ "$SKIP_FINALIZE" == 1 ]] && echo "skipped (no fstrim — USB/DAS disk)" || echo "yes")
 EOF
 if [[ "$ASSUME_YES" != 1 ]]; then
