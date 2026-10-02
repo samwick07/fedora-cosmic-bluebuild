@@ -70,7 +70,7 @@ The install script does **not** partition. The disk must already have:
 p1  600M   vfat         EFI system partition
 p2  1–2G   ext4         /boot
 p3  96G    crypto_LUKS  -> swap        (RAM 60 GB × 1.5; needed for hibernation)
-p4  rest   crypto_LUKS  -> btrfs /     (the script reformats the btrfs, keeps the LUKS)
+p4  rest   crypto_LUKS  -> btrfs /     (the script reformats the btrfs, keeps the LUKS; ESP + /boot reformatted, same UUIDs)
 ```
 
 The 2TB test drive already has this layout (from the previous attempt). For a
@@ -268,8 +268,8 @@ Then the 4TB:
 3. `sudo make-target-env.sh /dev/nvme0n1 > ~/4tb-primary.env` (shipped in the image; it reads
    `/etc/fedora-cosmic-atomic/site.env`), set `SKIP_FINALIZE=0` and `TEST_INSTALL=0`, and **edit
    `PROTECTED_LUKS_UUIDS`**: remove the two 4TB UUIDs, add the test drive's root LUKS UUID.
-4. `sudo install-atomic.sh ~/4tb-primary.env` — this reformats the 4TB's btrfs root. The ESP,
-   `/boot`, and the LUKS containers (same passphrases) are kept. Hostname: `frmwrk`.
+4. `sudo install-atomic.sh ~/4tb-primary.env` — this reformats the 4TB's btrfs root. The ESP and
+   `/boot` are reformatted with the same UUIDs; the LUKS containers (same passphrases) are kept. Hostname: `frmwrk`.
 5. Reboot into the 4TB, Phase 3 + 4 again (the restore is the slow part).
 6. Keep the test drive as a bootable spare until the 4TB has survived a week
    and one `bootc upgrade` — and afterwards as the **rescue drive**: it boots from USB and carries

@@ -116,8 +116,8 @@ case "$verdict" in
     configured)
         say "Already configured for this system (EFI + /boot + $nluks LUKS container(s)):"
         describe
-        say "Plan: install into it. The ESP, /boot and the LUKS containers (and their passphrase) are kept;"
-        say "      the root filesystem inside the LUKS root is REFORMATTED — anything on it is lost."
+        say "Plan: install into it. The partitions and the LUKS containers (and their passphrase) are kept;"
+        say "      the ESP, /boot and the root filesystem are REFORMATTED (same UUIDs) — anything on them is lost."
         say "      install-atomic.sh shows a summary and asks you to type the disk name." ;;
     data)
         say "This disk CONTAINS DATA and does not match the expected layout:"

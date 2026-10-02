@@ -21,7 +21,9 @@
 #   4. Copies the image into root's podman storage if only your user has it
 #      (before anything is written, so a failed copy leaves the disk untouched).
 #   5. Shows a summary and waits for you to type the disk name.
-#   6. mkfs.btrfs the root container (the ESP, /boot and swap are kept as-is),
+#   6. Reformats the ESP (vfat) and /boot (ext4) with their SAME UUIDs and labels
+#      — a previous OS's boot entries and bootupd state there break bootc —
+#      and mkfs.btrfs the root container (partition table, LUKS and swap kept),
 #      mounts root -> /boot -> /boot/efi in that order.
 #   7. Runs bootc install to-filesystem with GRUB, the separate /boot, and the
 #      LUKS + resume kernel arguments.
@@ -183,8 +185,8 @@ info "image id $(podman image inspect "$IMAGE" --format '{{.Id}}' | cut -c1-12)"
 log "About to install"
 cat <<EOF
     Disk            /dev/$TARGET_DISK  (will NOT be repartitioned)
-    ESP             $EFI_PART   UUID=$EFI_UUID        kept
-    /boot           $BOOT_PART   UUID=$BOOT_UUID       kept (bootc writes kernels + grub.cfg here)
+    ESP             $EFI_PART   UUID=$EFI_UUID        *** REFORMATTED (same UUID) ***
+    /boot           $BOOT_PART   UUID=$BOOT_UUID       *** REFORMATTED (same UUID) ***
     root LUKS       $ROOT_LUKS_PART  -> $ROOT_DM     *** btrfs WILL BE REFORMATTED ***
     swap LUKS       ${SWAP_LUKS_PART:-none}  ${SWAP_DM:+-> $SWAP_DM (swap UUID $SWAP_FS_UUID)}
     Image           $IMAGE  (id $(podman image inspect "$IMAGE" --format '{{.Id}}' | cut -c1-12))
@@ -200,8 +202,20 @@ if [[ "$ASSUME_YES" != 1 ]]; then
     [[ "$answer" == "$TARGET_DISK" ]] || die "aborted"
 fi
 
-# ─── 6. Format root, mount in order ────────────────────────────────────
-log "Formatting root and mounting"
+# ─── 6. Format ESP, /boot, root; mount in order ─────────────────────────
+# ESP and /boot are reformatted too, keeping UUID + label (fstab, kargs and the
+# ESP's grub stub find them by UUID; firmware entries use the PARTUUID, which
+# mkfs does not touch). Kept, they carry the previous OS's BLS entries and
+# bootupd-state.json, and bootc aborts parsing deployments that no longer exist.
+log "Formatting ESP, /boot and root, then mounting"
+umount "$EFI_PART" 2>/dev/null || true; umount "$BOOT_PART" 2>/dev/null || true
+efi_label=$(blkid -s LABEL -o value "$EFI_PART" || true)
+boot_label=$(blkid -s LABEL -o value "$BOOT_PART" || true)
+mkfs.vfat -F32 -i "${EFI_UUID//-/}" -n "${efi_label:-EFI}" "$EFI_PART" >/dev/null
+mkfs.ext4 -q -F -U "$BOOT_UUID" -L "${boot_label:-boot}" "$BOOT_PART"
+udevadm settle
+[[ $(blkid -s UUID -o value "$EFI_PART") == "$EFI_UUID" ]]   || die "ESP UUID changed after mkfs — check $EFI_PART"
+[[ $(blkid -s UUID -o value "$BOOT_PART") == "$BOOT_UUID" ]] || die "/boot UUID changed after mkfs — check $BOOT_PART"
 mkfs.btrfs -f -L fedora_root "$ROOT_DM" >/dev/null
 mkdir -p "$MOUNT_ROOT"
 mount -o compress=zstd:1 "$ROOT_DM" "$MOUNT_ROOT"

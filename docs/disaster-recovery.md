@@ -39,7 +39,7 @@ procedure.
    | --- | --- |
    | **new / blank** | partitions + encrypts it (asks the new LUKS passphrase once), installs — no other questions |
    | **contains data** | lists what is on it (Windows/NTFS, Linux filesystems, LUKS, mounted), offers to erase it: type `WIPE <name>` |
-   | **already configured** | says so; reinstalling keeps ESP, /boot and the LUKS containers and reformats only the root (you type the disk name) |
+   | **already configured** | says so; reinstalling keeps the partitions and LUKS containers (passphrase), reformats ESP, /boot and root (same UUIDs) (you type the disk name) |
    | **running / protected** | refuses, with the reason |
 
    It checks the image is present **before** erasing anything, writes the target
