@@ -199,7 +199,7 @@ cat <<EOF
     Updates from    $TARGET_IMGREF
     Bootloader      grub (BLS entries on /boot, shim+grub on the ESP)
     Firmware        never written (efivars read-only; bootupd without --update-firmware); boots via ESP fallback
-    Test install    $([[ "${TEST_INSTALL:-0}" == 1 ]] && echo "yes (Syncthing stays off; use scripts/test/syncthing-2tb-check.sh)" || echo "no (real install)")
+    Test install    $([[ "${TEST_INSTALL:-0}" == 1 ]] && echo "yes (own Syncthing device + Tailscale node; scripts/test/syncthing-test-device.sh)" || echo "no (real install)")
     Hostname        $(if [[ -z "${SITE_HOSTNAME:-}" ]]; then echo "(not set — add SITE_HOSTNAME to site.env)"; elif [[ "${TEST_INSTALL:-0}" == 1 ]]; then echo "$SITE_HOSTNAME-test"; else echo "$SITE_HOSTNAME"; fi)
     Finalize        $([[ "$SKIP_FINALIZE" == 1 ]] && echo "skipped (no fstrim — USB/DAS disk)" || echo "yes")
 EOF

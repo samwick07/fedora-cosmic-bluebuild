@@ -89,9 +89,10 @@ PROTECTED_LUKS_UUIDS="$PROTECTED_LUKS_UUIDS"
 CREATE_USER="$SITE_USER"
 CREATE_USER_UID=${SITE_UID:-1000}
 
-# 1 = this is a TEST install (the 2TB drive): Syncthing is never enabled
-# automatically; scripts/test/syncthing-2tb-check.sh does a paused-only
-# connection test instead. Set 0 for the real 4TB install.
+# 1 = this is a TEST install (the 2TB drive), run for months beside the real
+# machine: it never takes over the real machine's Syncthing identity or
+# Tailscale node (new device, receive-only folders via
+# scripts/test/syncthing-test-device.sh; new node). Set 0 for the real 4TB install.
 TEST_INSTALL=1
 
 # 1 = skip fstrim/readonly-remount (needed on USB/DAS-attached disks that

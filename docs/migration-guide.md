@@ -55,8 +55,8 @@ See `docs/bootloader.md` for why systemd-boot is not used.
    `chezmoi init --source ~/migration-prep/dotfiles --dry-run --verbose` shows
    exactly what would change without touching anything.
 6. **Syncthing on dsktp: pause every shared folder** before the install.
-   Test drive: keep them paused for the WHOLE test, until the 4TB Workstation is
-   booted again (the test system has the same device identity). Real 4TB run:
+   Test drive: not needed — it runs as its own Syncthing device (`frmwrk-test`,
+   receive-only), so dsktp keeps syncing with the Workstation throughout. Real 4TB run:
    resume after `post-install-setup.sh` step 6, which asks you to confirm the pause
    before it enables Syncthing.
 
@@ -201,12 +201,12 @@ Steps, in order (each idempotent; `--step N` reruns one, `--check` reports):
 | # | Does | Needs |
 | --- | --- | --- |
 | 1 | Mounts the DAS by LUKS UUID | DAS attached, passphrase |
-| 2 | Restores `~/.restic` (prompts for the repo passphrase), then every path in `/etc/fedora-cosmic-atomic/restore-allowlist.txt` in order — Syncthing data folders, `.ssh`/`.gnupg`/`.config/gh`, `.claude`/`.hermes`/`migration-prep`, and **last** the Syncthing identity; plus `/etc/NetworkManager`. Always from the newest snapshot of host `SITE_HOSTNAME` (never a `-test` one); home paths are restored into `/var/home` directly (`/home` is a symlink on the read-only root) | hours for ~1.4 TiB |
+| 2 | Restores `~/.restic` (prompts for the repo passphrase), then every path in `/etc/fedora-cosmic-atomic/restore-allowlist.txt` in order — Syncthing data folders, `.ssh`/`.gnupg`/`.config/gh`, `.claude`/`.hermes`/`migration-prep`, and **last** the Syncthing identity (test install: only the old `config.xml` is staged as `~/.local/state/syncthing-source-config.xml`, never the keys); plus `/etc/NetworkManager`. Always from the newest snapshot of host `SITE_HOSTNAME` (never a `-test` one); home paths are restored into `/var/home` directly (`/home` is a symlink on the read-only root) | hours for ~1.4 TiB |
 | 3 | Verifies hibernation (karg, swap, SELinux); repairs on the Anaconda path | — |
 | 4 | CAC system half: pcscd, DoD roots into the system trust | network (downloads + verifies the public DoD bundle) |
 | 5 | libvirt: modular daemons, `/etc/libvirt`, `Win11VM.qcow2` (512 GB), NVRAM + swtpm state, defines the VM | — |
-| 6 | **User layer**: `chezmoi init --apply git@github.com:samwick07/dotfiles.git`. Its `run_once` scripts install Homebrew + `~/.Brewfile`, `distrobox assemble` the `dev`/`claude`/`rocm` containers, apply flatpak overrides, run `setup-cac.sh --user`, enable the Syncthing user service | SSH key from step 2; network; ~6 GB of pulls |
-| 7 | Tailscale: restore the old node identity or `tailscale up` as a new node | interactive |
+| 6 | **User layer**: `chezmoi init --apply git@github.com:samwick07/dotfiles.git`. Its `run_once` scripts install Homebrew + `~/.Brewfile`, `distrobox assemble` the `dev`/`claude`/`rocm` containers, apply flatpak overrides, run `setup-cac.sh --user`, enable the Syncthing user service (test install: with a NEW device identity) | SSH key from step 2; network; ~6 GB of pulls |
+| 7 | Tailscale: restore the old node identity or `tailscale up` as a new node (test install: always a new node, `frmwrk-test`) | interactive |
 
 Then **log out and back in** (libvirt group, brew on PATH, dotfiles), and reboot
 if step 3 changed kargs.
@@ -240,10 +240,12 @@ Validation checklist for the test drive (all must pass before the 4TB run):
 - [ ] `post-install-setup.sh --check` is all green
 - [ ] `chezmoi doctor` clean; `brew bundle check --global` says satisfied; `code` opens from the app menu (exported from the `dev` box)
 - [ ] `distrobox enter rocm -- rocminfo | grep gfx` shows gfx1103 (with `HSA_OVERRIDE_GFX_VERSION=11.0.0` exported)
-- [ ] Syncthing (test drive): keep every folder **paused on dsktp for the whole test**, then run
-      `~/migration-prep/fedora-cosmic-bluebuild/scripts/test/syncthing-2tb-check.sh` — it asks you to confirm the
-      pause, pauses every local folder, proves frmwrk connects to dsktp (direct over Tailscale), then stops and
-      disables Syncthing so the 4TB can go back in safely. Delete the script once it passes.
+- [ ] Syncthing (test drive, own device): `~/migration-prep/fedora-cosmic-bluebuild/scripts/test/syncthing-test-device.sh`
+      adds dsktp and every folder the Workstation shares with it — same IDs and paths, **Receive Only** — and prints
+      the commands to run on dsktp (add `frmwrk-test`, share the folders). Then: connected directly (Tailscale, not
+      relayed), folders Up to Date, an edit on the test drive shows as Locally Changed and never reaches dsktp.
+      dsktp ↔ Workstation keeps syncing the whole time. Later, folder by folder: Send & Receive (versioning on dsktp first).
+- [ ] Tailscale (test drive): its own node `frmwrk-test`; the Workstation's `frmwrk` node is unchanged in the admin console.
 - [ ] **Full Win11 VM test** (step 5 restores the real 512 GB disk — do not skip it on the test drive):
     - [ ] `virsh -c qemu:///system start Win11VM`; boots to the Windows login, no BitLocker recovery prompt (swtpm + NVRAM restored)
     - [ ] Secure Boot + TPM 2.0 present in Windows (`tpm.msc`, `msinfo32` → Secure Boot State: On)

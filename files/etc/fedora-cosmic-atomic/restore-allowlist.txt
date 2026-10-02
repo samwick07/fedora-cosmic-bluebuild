@@ -35,4 +35,6 @@
 
 # ── Syncthing identity — LAST, after every synced folder above is in place ──
 # (cert.pem/key.pem = this machine's device ID; config.xml = folders + peers)
+# Test install (TEST_INSTALL=1): only config.xml is staged, never the keys — the
+# test drive is its own device (scripts/test/syncthing-test-device.sh).
 ~/.local/state/syncthing

@@ -44,6 +44,13 @@ RESTIC_PASSFILE="${USER_HOME}/.restic/frmwrk-repo.pass"
 ALLOWLIST="${ALLOWLIST:-/etc/fedora-cosmic-atomic/restore-allowlist.txt}"
 DOTFILES_REPO="${DOTFILES_REPO:-git@github.com:samwick07/dotfiles.git}"
 STATE_DIR="/var/lib/post-install-setup"
+# A test install runs for months beside the real machine, so it never takes over
+# the real machine's network identities: Syncthing gets a new device ID (only the
+# old config.xml is staged, for scripts/test/syncthing-test-device.sh) and
+# Tailscale a new node. The real machine keeps syncing with dsktp meanwhile.
+TEST_INSTALL=0
+grep -qs '^TEST_INSTALL=1' /etc/fedora-cosmic-atomic/install-target.env && TEST_INSTALL=1
+SYNCTHING_SOURCE_CONFIG="${USER_HOME}/.local/state/syncthing-source-config.xml"
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 log()    { echo -e "\n\033[1;34m=== $* ===\033[0m"; }
@@ -67,6 +74,21 @@ SNAP=(latest)
 # home paths go into the directory that really holds home (/var), the rest to /.
 restore_target() { if [[ "$1" == /home/* && -L /home ]]; then dirname "$(readlink -f /home)"; else echo /; fi; }
 restic_restore() { local path="$1"; shift; restic_root restore "${SNAP[@]}" --target "$(restore_target "$path")" --include "$path" "$@"; }
+# Test install: only the old config.xml (folder IDs, paths, the dsktp device),
+# never cert.pem/key.pem — those would make this disk a second "frmwrk".
+stage_syncthing_source_config() {
+    local dir="$1" tmp
+    if [[ -s "${SYNCTHING_SOURCE_CONFIG}" ]]; then skip "${SYNCTHING_SOURCE_CONFIG}"; return; fi
+    tmp=$(mktemp -d /var/tmp/syncthing-source.XXXXXX)
+    restic_root restore "${SNAP[@]}" --target "${tmp}" --include "${dir}/config.xml" >/dev/null
+    if [[ -s "${tmp}${dir}/config.xml" ]]; then
+        install -D -o "${TARGET_USER}" -g "${TARGET_USER}" -m 0600 "${tmp}${dir}/config.xml" "${SYNCTHING_SOURCE_CONFIG}"
+        ok "test install: Syncthing identity NOT restored; old config staged at ${SYNCTHING_SOURCE_CONFIG}"
+    else
+        warn "no Syncthing config.xml in the snapshot — scripts/test/syncthing-test-device.sh will need it"
+    fi
+    rm -rf "${tmp}"
+}
 step_done()      { [[ -f "${STATE_DIR}/${1}.done" ]]; }
 mark_step_done() { mkdir -p "${STATE_DIR}"; touch "${STATE_DIR}/${1}.done"; }
 
@@ -159,13 +181,20 @@ step2_restore() {
         [[ -z "${path}" ]] && continue
         # shellcheck disable=SC2088  # a literal "~/" prefix in the allowlist, expanded here
         [[ "${path}" == "~/"* ]] && path="${USER_HOME}/${path#"~/"}"   # entries are home-relative
+        if [[ "${TEST_INSTALL}" == 1 && "${path}" == */.local/state/syncthing ]]; then
+            stage_syncthing_source_config "${path}"
+            continue
+        fi
         if [[ -e "${path}" && -n "$(ls -A "${path}" 2>/dev/null)" ]]; then
             skip "${path}"
             continue
         fi
         echo "  restoring ${path} ..."
         if [[ "${path}" == */.local/state/syncthing ]]; then
-            restic_restore "${path}" --exclude "${path}/*.log" --exclude "${path}/index-v2"
+            # restic 0.19 refuses --include with --exclude ("mutually exclusive"),
+            # so restore all of it, then drop the logs and the old index (rebuilt).
+            restic_restore "${path}"
+            rm -rf "${path}"/*.log "${path}/index-v2"
         else
             restic_restore "${path}"
         fi
@@ -259,6 +288,12 @@ step7_tailscale() {
     systemctl enable --now tailscaled
     if tailscale status >/dev/null 2>&1; then
         skip "tailscale already connected"
+    elif [[ "${TEST_INSTALL}" == 1 ]]; then
+        # Never the old identity here: two disks with the same node key log each
+        # other out, and the real machine's node must keep working.
+        echo "  Test install: NEW node \"$(hostname)\" (the real machine's node stays untouched)."
+        echo "  Approve it in the admin console; consider disabling its key expiry for the test period."
+        tailscale up || warn "tailscale up needs an interactive login — run it yourself"
     else
         echo "  Option A (same node identity as before): restore /var/lib/tailscale from the backup."
         echo "  Option B (new node): tailscale up — approve it in the admin console."
@@ -297,6 +332,7 @@ Next:
   1. Log out and back in (libvirt group, brew on PATH, restored dotfiles)
   2. post-install-setup.sh --check
   3. Syncthing: open http://127.0.0.1:8384 — the desktop should reconnect within a minute
+     (test install: run scripts/test/syncthing-test-device.sh instead — own device, receive-only)
   4. Test hibernation:  systemctl hibernate
   5. Anything you miss from the old machine:
        sudo restic -r ${RESTIC_REPO} ls ${SNAP[*]} ${USER_HOME} | less
