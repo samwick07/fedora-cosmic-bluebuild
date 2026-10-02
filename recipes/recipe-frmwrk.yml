@@ -68,6 +68,17 @@ modules:
       - "chmod 0755 /usr/bin/enable-hibernation.sh"
 
   # ─────────────────────────────────────────────
+  # BOOT SPLASH: graphical LUKS prompt
+  # ─────────────────────────────────────────────
+  # Without rhgb/quiet plymouth runs in text mode: the passphrase prompt prints
+  # ~2 s into boot and kernel messages scroll it off screen (2TB first boot).
+  # bootc install and bootc upgrade both apply kargs.d.
+  - type: kargs@v1
+    kargs:
+      - rhgb
+      - quiet
+
+  # ─────────────────────────────────────────────
   # OS IDENTITY
   # ─────────────────────────────────────────────
   - type: os-release@v1

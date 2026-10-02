@@ -36,6 +36,8 @@ check "shell scripts parse"      run sh -c 'for f in /usr/bin/post-install-setup
 if [[ "$variant" == frmwrk ]]; then
     check "lid -> suspend-then-hibernate" run grep -q '^HandleLidSwitch=suspend-then-hibernate' /etc/systemd/logind.conf.d/10-lid.conf
     check "fprintd installed"     run rpm -q fprintd
+    # Graphical LUKS prompt; in text mode kernel messages scroll it away.
+    check "kargs.d: rhgb quiet"   run sh -c 'k=$(cat /usr/lib/bootc/kargs.d/*.toml 2>/dev/null); for a in rhgb quiet; do printf "%s" "$k" | grep -q "\"$a\"" || { echo "missing karg $a in /usr/lib/bootc/kargs.d"; exit 1; }; done'
 fi
 # Updates are staged, never applied automatically (no surprise reboots).
 check "bootc timer enabled, stage-only" run sh -c '
