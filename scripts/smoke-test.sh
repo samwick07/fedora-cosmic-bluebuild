@@ -37,6 +37,13 @@ if [[ "$variant" == frmwrk ]]; then
     check "lid -> suspend-then-hibernate" run grep -q '^HandleLidSwitch=suspend-then-hibernate' /etc/systemd/logind.conf.d/10-lid.conf
     check "fprintd installed"     run rpm -q fprintd
 fi
+# Updates are staged, never applied automatically (no surprise reboots).
+check "bootc timer enabled, stage-only" run sh -c '
+    [ "$(systemctl is-enabled bootc-fetch-apply-updates.timer)" = enabled ] || { echo "timer not enabled"; exit 1; }
+    d=/usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/10-stage-only.conf
+    [ "$(stat -c %a $d)" = 644 ] || { echo "drop-in mode $(stat -c %a $d)"; exit 1; }
+    last=$(cat /usr/lib/systemd/system/bootc-fetch-apply-updates.service $d | grep "^ExecStart=" | tail -1)
+    [ "$last" = "ExecStart=/usr/bin/bootc upgrade --quiet" ] || { echo "effective: $last"; exit 1; }'
 # Signing policy must name the published image (fix-signing-registry.sh).
 # Checked by content: the registries.d file name differs between builds.
 check "signing policy for ghcr.io/samwick07/$NAME" run sh -c "

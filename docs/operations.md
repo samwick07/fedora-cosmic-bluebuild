@@ -4,7 +4,7 @@
 
 | Task | How |
 | --- | --- |
-| Update | `sudo bootc upgrade && systemctl reboot` (CI publishes a new image when Fedora's base or this repo changes) |
+| Update | OS: staged automatically (`bootc-fetch-apply-updates.timer`, stage-only — never reboots) and by `topgrade`; it applies at the next reboot **you** choose. Apps/boxes/brew: `topgrade` when nothing long is running. `bootc status` shows what is staged. |
 | Roll back | `sudo bootc rollback && systemctl reboot`, or pick the previous GRUB entry |
 | Add a GUI app | `default-flatpaks` in `recipes/common-modules.yml` (or `flatpak install` now, declare later) |
 | Add a CLI tool | `~/.Brewfile` in the dotfiles → `brew bundle --global` |
