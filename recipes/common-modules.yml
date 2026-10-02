@@ -134,8 +134,8 @@ modules:
       - notify: true
         scope: system
         install:
-          # ── Browsers ──
-          - com.google.Chrome                 # default browser (mimeapps.list)
+          # Browsers: Chrome is the RPM in the dev distrobox (distrobox.ini),
+          # Firefox the base image's RPM.
           # ── System utilities ──
           - com.github.tchx84.Flatseal
           - it.mijorus.gearlever              # AppImage manager (Claude Desktop lives in ~/AppImages)

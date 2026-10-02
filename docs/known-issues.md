@@ -10,8 +10,13 @@ moves here when it is a lasting limitation rather than something to fix.
   through the `/home` symlink on the read-only root makes restic exit 1 on `lchown`, reproduced in a
   container) and only from host `SITE_HOSTNAME`'s newest snapshot. Tested in containers; the first
   real run is Phase 4 on the test drive.
-- **Flatpak browsers and the CAC.** Native Firefox loads OpenSC through p11-kit;
-  whether the Chrome flatpak sees the card through `--socket=pcsc` must be tested.
+- **CAC in Chrome (dev distrobox).** Chrome is the RPM in the `dev` box. Tested on the
+  Workstation (2026-10-02, throwaway box, no reader attached): the box reaches the host's
+  pcscd through the /run/pcscd symlink (SCardEstablishContext ok; without the symlink
+  0x8010001D), p11-kit loads OpenSC, ~/.pki/nssdb (shared home) has the DoD certs, and
+  Chrome's renderers run in their own user/pid namespaces with seccomp. Untested: a real
+  card + PIN + a CAC login site. pcsc-lite in the box (fedora:44) and on the host must speak
+  the same protocol; both are Fedora 44 today.
 - **Rechunking / zstd.** Not enabled: per-update download size not measured yet
   (`--build-chunked-oci` is a CI dispatch option); zstd untested with `bootc upgrade`.
 - **Desktop image (`recipe-dsktp.yml`).** Builds and validates; never installed.

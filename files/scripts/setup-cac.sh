@@ -24,6 +24,10 @@
 # Browser notes:
 #   - Native Firefox/Chrome on Fedora load OpenSC through p11-kit automatically;
 #     the modutil step below is belt-and-braces.
+#   - Chrome is the RPM in the `dev` distrobox: it shares ~/.pki/nssdb (configured
+#     by --user), has its own opensc, and reaches the host's pcscd through the
+#     box's /run/pcscd symlink (distrobox.ini). Check from the host:
+#       distrobox enter dev -- opensc-tool --list-readers
 #   - Flatpak browsers (Firefox, Chrome) run in a sandbox where the host's
 #     /usr/lib64/opensc-pkcs11.so does not exist. This script imports the DoD
 #     certificates into their profiles and grants --socket=pcsc; whether the
@@ -43,7 +47,7 @@ else
 fi
 USER_HOME=$(getent passwd "${TARGET_USER}" | cut -d: -f6 || true)
 OPENSC_LIB="/usr/lib64/opensc-pkcs11.so"
-FLATPAK_BROWSERS=(org.mozilla.firefox com.google.Chrome)
+FLATPAK_BROWSERS=(org.mozilla.firefox com.google.Chrome)   # only if installed as flatpaks; the image ships neither
 
 DOD_PKI_URL="${DOD_PKI_URL:-https://dl.dod.cyber.mil/wp-content/uploads/pki-pke/zip/unclass-certificates_pkcs7_DoD.zip}"
 SYSTEM_PKI_CACHE=/var/lib/fedora-cosmic-atomic/dod-pki
@@ -249,6 +253,7 @@ do_user() {
     echo "[user] pcsc socket for flatpak browsers"
     local app
     for app in "${FLATPAK_BROWSERS[@]}"; do
+        flatpak info "${app}" >/dev/null 2>&1 || { echo "   ${app}: not installed, skipped"; continue; }
         flatpak override --user --socket=pcsc "${app}" 2>/dev/null && echo "   ${app}: granted" || echo "   ${app}: override failed"
     done
 }
