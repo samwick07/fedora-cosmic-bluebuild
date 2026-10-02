@@ -106,7 +106,10 @@ describe() {  # one line per partition, in words
 
 case "$verdict" in
     refuse)
-        say "REFUSED:"; printf '  - %s\n' "${why[@]}"; exit 1 ;;
+        say "REFUSED:"; printf '  - %s\n' "${why[@]}"
+        say "Reinstalling a protected disk on purpose (e.g. the final 4TB run) is a manual step:"
+        say "docs/migration-guide.md Phase 5 — make-target-env.sh, remove its UUIDs from PROTECTED_LUKS_UUIDS, install-atomic.sh."
+        exit 1 ;;
     blank)
         say "New / blank: ${pttype:+an empty $pttype partition table, }no partitions, nothing to lose."
         say "Plan: prepare it (ESP, /boot, LUKS swap ${SWAP_GB:-?} GiB, LUKS root), then install." ;;

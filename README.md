@@ -1,120 +1,39 @@
-# fedora-cosmic-bluebuild — declarative Fedora Cosmic Atomic for two AMD machines
+# fedora-cosmic-bluebuild
 
-One BlueBuild repository, two images, built **locally** and pushed to GHCR:
+Declarative Fedora COSMIC Atomic images for two AMD machines, built with
+[BlueBuild](https://blue-build.org) on `quay.io/fedora-ostree-desktops/cosmic-atomic:44`,
+signed with cosign and published to GHCR.
 
-| Image | Machine | Recipe |
-| --- | --- | --- |
-| `ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` | Framework 13 AMD (Ryzen 7040U, 780M) — laptop, hibernation, fingerprint | `recipes/recipe-frmwrk.yml` |
-| `ghcr.io/samwick07/fedora-cosmic-dsktp:latest` | ROG STRIX X870-I, Ryzen 9 9950X, RX 9070 XT — VFIO passthrough of a 2TB NVMe to a Win11 VM | `recipes/recipe-dsktp.yml` |
-
-Base: `quay.io/fedora-ostree-desktops/cosmic-atomic:44`. Bootloader: GRUB
-(`docs/bootloader.md`). Shared content: `recipes/common-modules.yml`.
-
-## If the laptop is dead: the 6-line version
-
-```bash
-git clone git@github.com:samwick07/fedora-cosmic-bluebuild.git ~/migration-prep/fedora-cosmic-bluebuild && cd $_
-bluebuild build -B podman recipes/recipe-frmwrk.yml                             # docs/local-build.md
-sudo scripts/make-target-env.sh /dev/<disk> > scripts/targets/<disk>.env && $EDITOR scripts/targets/<disk>.env
-sudo scripts/install-atomic.sh scripts/targets/<disk>.env                       # reboot into it
-sudo post-install-setup.sh                                                      # restores ~ and everything else from the DAS
-post-install-setup.sh --check
-```
-
-Everything needed is in this repo (system), `github.com/samwick07/dotfiles`
-(user config, via chezmoi), the DAS (restic repo `frmwrk-restic-repo`, LUKS
-UUID = `DAS_LUKS_UUID` in `scripts/targets/site.env`), and two secrets you must hold outside all of them: the
-restic passphrase and `cosign.key`. Full runbook: **`docs/migration-guide.md`**;
-the model behind it: **`docs/clean-room.md`**.
-
-## Repository map
-
-```
-recipes/
-  common-modules.yml        packages, services, flatpaks, scripts shipped to /usr/bin — shared
-  recipe-frmwrk.yml      + fprintd/iio-sensor-proxy, ROCm env, hibernation drop-ins + SELinux
-  recipe-dsktp.yml        + IOMMU kargs, ROCm env, enable-vfio.sh
-files/
-  etc/                      static config -> /etc, incl. fedora-cosmic-atomic/restore-allowlist.txt
-  scripts/                  build-time scripts (configure-*.sh) and host scripts (-> /usr/bin)
-  distrobox/distrobox.ini   `distrobox assemble` manifest: dev, claude, rocm (-> /usr/share/distrobox)
-scripts/
-  install-to-disk.sh -> files/scripts/  ONE command: checks the disk (blank / data / configured / refused), then the three below
-  prepare-disk.sh  -> files/scripts/  blank/new disk -> ESP, /boot, LUKS swap, LUKS root (guarded; --selftest)
-  make-target-env.sh -> files/scripts/  read a disk's UUIDs into a target .env
-  install-atomic.sh -> files/scripts/  bootc install to-filesystem onto that layout (UUID-driven, guarded)
-                            (all three also ship in the image as /usr/bin/*.sh)
-  targets/example.env       template; real targets are gitignored
-  targets/site.example.env  template for site.env (gitignored): user, DAS UUID/label, protected disks —
-                            the ONLY place personal values live; installed as /etc/fedora-cosmic-atomic/site.env
-  smoke-test.sh             checks a built image (gates the CI push)
-  check-leaks.sh            fails if personal values appear in the repo or an image
-  ci-should-build.sh        CI: build only if the base digest or the repo changed
-  reregister-win11vm.sh     recreate the Win11VM domain if its XML is ever lost
-backup/
-  frmwrk_backup_command.sh  restic backup (source of truth for the copy on the DAS)
-  frmwrk-restic-excludes    anchored exclude list ($BACKUP_HOME/… — the script exports it)
-docs/
-  clean-room.md             the four layers, software lanes, restore allowlist, Syncthing rules
-  migration-guide.md        install → first boot → restore → validate → 4TB → rollback
-  local-build.md            build, smoke-test, sign, push, switch, version bump
-  hibernation-setup.md      what must be true for suspend-then-hibernate, and how to check
-  disaster-recovery.md      new/replacement drive: rescue boot -> prepare-disk -> install -> restore
-  known-issues.md           open verifications and lasting caveats (bugs -> GitHub issues)
-  bootloader.md             GRUB; why systemd-boot was dropped and how to try it later
-.github/workflows/build.yml nightly if base or repo changed; smoke tests gate the push (scripts/ci-should-build.sh)
-cosign.pub                  image verification key (private key: cosign.key, gitignored)
-```
-
-## Host scripts shipped in the image
-
-| Path on the installed system | Purpose |
+| Image | Machine |
 | --- | --- |
-| `/usr/bin/post-install-setup.sh` | Root half of a rebuild: DAS, allowlist restore, hibernation check, CAC system trust, VMs, then `chezmoi init --apply`, Tailscale. `--list`, `--check`, `--step N`. |
-| `/usr/bin/setup-cac.sh` | DoD PKI (downloaded from public.cyber.mil, verified against pinned DoD roots, cached) + OpenSC for pcscd, system trust, NSS/browser profiles. `--system` (root), `--user` (chezmoi), `--check`, `--fetch`, `--refresh`. |
-| `/usr/share/distrobox/distrobox.ini` | `distrobox assemble create --file …` — `dev` (Fedora, VS Code/Antigravity exported), `claude` (Ubuntu), `rocm`. |
-| `/usr/bin/enable-hibernation.sh` | Verify/repair resume karg, LUKS karg, swap, SELinux module. `--check`. |
-| `/usr/bin/enable-vfio.sh` | Desktop: bind one NVMe controller to vfio-pci **by PCI address** (both T700s share an ID). |
-| `/usr/bin/win11-cac` | Hand the USB CAC reader to `Win11VM` and back (`attach`/`detach`/`status`); stops host pcscd while the VM has it. |
-| `/usr/bin/install-to-disk.sh` (+ `prepare-disk.sh`, `make-target-env.sh`, `install-atomic.sh`) | New/replacement drive and reinstall tooling (`docs/disaster-recovery.md`); read `/etc/fedora-cosmic-atomic/site.env`. |
-| `/usr/bin/cosmic-report` | State snapshot for the journal or an issue; `--public` replaces user/host/UUIDs/tailnet. |
-| `/usr/bin/migrate-docker-to-podman.sh` | One-time: Open WebUI / SearXNG volumes and compose stack from Docker to rootless podman. |
+| `ghcr.io/samwick07/fedora-cosmic-frmwrk` | Framework 13 AMD laptop — hibernation, fingerprint, CAC, Win11 VM |
+| `ghcr.io/samwick07/fedora-cosmic-dsktp` | Desktop (Ryzen 9 / RX 9070 XT, VFIO) — recipe only, not yet migrated |
 
-## Four layers (clean-room)
+## Documentation
 
-1. **OS image** — this repo. Edit → `bluebuild build` → smoke test → push → `sudo bootc upgrade`.
-2. **User layer** — `samwick07/dotfiles` (chezmoi): shell, ghostty, git, `~/.Brewfile`, and the `run_once` scripts that assemble containers, set flatpak permissions, wire CAC and Syncthing. Branches on the image's `VARIANT_ID`.
-3. **Live data** — Syncthing between laptop and desktop (rules in `docs/clean-room.md`).
-4. **Archive** — restic on the DAS, one repo per machine. Restored by allowlist on a rebuild, by hand afterwards.
-
-## Daily operations
-
-| Task | Command |
+| I want to … | Read |
 | --- | --- |
-| Update | `sudo bootc upgrade && systemctl reboot` |
-| Roll back | `sudo bootc rollback && systemctl reboot` (or pick the previous GRUB entry) |
-| Add a GUI app | `default-flatpaks` list in `recipes/common-modules.yml` → build → push (or just `flatpak install` and add it later) |
-| Add a CLI tool | `~/.Brewfile` in dotfiles → `brew bundle --global` |
-| Add a toolchain / IDE | `files/distrobox/distrobox.ini` → build → push → `distrobox assemble create --file /usr/share/distrobox/distrobox.ini --name dev --replace` |
-| Add something that needs the kernel/systemd | `recipes/common-modules.yml` (or one recipe) → build → push |
-| Change a dotfile | `chezmoi edit …` → `chezmoi apply` → commit/push; `chezmoi update` on the other machine |
-| Fedora 44 → 45 | `image-version: 45` in both recipes → build → test on the test drive → push (`docs/local-build.md`) |
-| Backup | `/run/media/$USER/DAS/frmwrk_backup_command.sh` (asks for sudo once) |
-| Health | `post-install-setup.sh --check`, `setup-cac.sh --check`, `sudo enable-hibernation.sh --check` |
+| understand the model (image / chezmoi / Syncthing / restic) | [docs/clean-room.md](docs/clean-room.md) |
+| migrate a machine: install → first boot → restore → validate | [docs/migration-guide.md](docs/migration-guide.md) |
+| replace a dead or new drive | [docs/disaster-recovery.md](docs/disaster-recovery.md) |
+| update, add software, find a tool, see why things are the way they are | [docs/operations.md](docs/operations.md) |
+| build, test, sign or publish an image; how CI works | [docs/local-build.md](docs/local-build.md) |
+| check hibernation | [docs/hibernation-setup.md](docs/hibernation-setup.md) |
+| know about the bootloader choice | [docs/bootloader.md](docs/bootloader.md) |
+| see open caveats, or report a bug | [docs/known-issues.md](docs/known-issues.md) · [issues](../../issues) |
 
-## Design decisions
+## Layout
 
-- **GRUB, not systemd-boot** — the two systemd-boot approaches tried earlier both yield an unbootable disk with a separate ext4 `/boot`; see `docs/bootloader.md`.
-- **bootc install to-filesystem onto pre-made LUKS**, not Anaconda — reproducible, 5 minutes, keeps the LUKS containers and their passphrases; the Anaconda ISO remains a documented alternative.
-- **Nothing under `/usr/local`, `/opt`, `/home`** in the image — those are `/var` on ostree and are not updated after the first install.
-- **Modular libvirt** (`virtqemud.socket` &c.), not `libvirtd.service` — they conflict.
-- **Clean-room, not port-over** — data is restored by allowlist; config is declared in chezmoi; apps are re-chosen per lane (flatpak / Homebrew / distrobox / image). See `docs/clean-room.md`.
-- **Desktop deferred** — `recipe-dsktp.yml` builds, but the desktop migrates only after the laptop workflow has held up for months.
-- **Local builds** — GitHub Actions is `workflow_dispatch` only.
-- **VFIO by PCI address** — `vfio-pci.ids=` would capture the boot NVMe on the desktop.
+```
+recipes/       image definitions (common-modules.yml + one recipe per machine)
+files/         everything copied into the image (see files/README.md)
+scripts/       install, check and CI helpers; targets/site.example.env = template for the private site.env
+backup/        restic backup script + excludes (the copy on the DAS is deployed from here)
+docs/          the documentation above
+.github/       nightly CI build gated by scripts/smoke-test.sh; issue template
+cosign.pub     verifies the images
+```
 
-## Secrets (never in git, never only on the laptop)
-
-`cosign.key` (unencrypted — see `docs/local-build.md`), the restic passphrase /
-`~/.restic/frmwrk-repo.pass`, the LUKS passphrases, and if BitLocker is on in
-the VM, its recovery key.
+Personal values (user, disks, DAS) live only in the gitignored
+`scripts/targets/site.env`; `scripts/check-leaks.sh` keeps them out of the repo
+and the image. User configuration lives in a separate (private) chezmoi repo.

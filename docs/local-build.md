@@ -104,7 +104,7 @@ done
 
 | Situation | Command on the machine |
 | --- | --- |
-| Fresh install of a disk | `sudo scripts/install-atomic.sh scripts/targets/<disk>.env` (uses the `localhost/` image, sets GHCR as update source) |
+| Fresh install of a disk | `sudo scripts/install-to-disk.sh /dev/disk/by-id/<disk>` (`disaster-recovery.md`; installs the image from local podman storage, sets GHCR as update source) |
 | Routine update | `sudo bootc upgrade` (or `rpm-ostree upgrade`) then reboot |
 | Test a local build without pushing | `sudo bootc switch --transport containers-storage localhost/fedora-cosmic-frmwrk:latest` — the image must be in **root's** podman storage (`sudo podman images`); copy with `podman save … \| sudo podman load` if you built rootless |
 | Go back to GHCR after a local test | `sudo bootc switch ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` |
