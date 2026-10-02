@@ -347,7 +347,6 @@ if [[ -n "$CREATE_USER" ]] && ! grep -q "^$CREATE_USER:" "$DEPLOY/etc/passwd"; t
     groups="wheel"
     grep -q '^libvirt:' "$DEPLOY/etc/group" && groups="$groups,libvirt"
     useradd --root "$DEPLOY" --uid "$CREATE_USER_UID" --user-group --groups "$groups" \
-            -K CREATE_MAIL_SPOOL=no \
             --shell /bin/bash --no-create-home --home-dir "/var/home/$CREATE_USER" "$CREATE_USER"
     mkdir -p "$STATEROOT/var/home/$CREATE_USER"
     cp -a "$DEPLOY/etc/skel/." "$STATEROOT/var/home/$CREATE_USER/"
