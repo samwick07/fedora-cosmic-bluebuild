@@ -29,5 +29,11 @@ moves here when it is a lasting limitation rather than something to fix.
   unsigned image). See `docs/hibernation-setup.md`.
 - **`podman pull` of `:latest` replaces the local manifest list** with a plain
   image; before a local `--push`: `podman manifest exists … || podman untag …`.
+- **bootupd rewrites the firmware's boot entries.** During `bootc install` it deletes every NVRAM
+  entry labelled "Fedora" — including the running system's — and creates one for the target.
+  `install-atomic.sh` snapshots the entries and prints what was removed with a recreate command;
+  give the running system's entry a label other than plain "Fedora". The target does not need
+  the entry: its ESP carries the shim fallback (`EFI/BOOT/BOOTX64.EFI` + `fbx64.efi`), which
+  recreates it on first boot.
 - **`install-atomic.sh` needs a disk prepared by `prepare-disk.sh` or Anaconda**
   (ESP, ext4 /boot, LUKS swap, LUKS root). It never repartitions.

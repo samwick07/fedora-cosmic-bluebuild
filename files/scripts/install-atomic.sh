@@ -240,6 +240,15 @@ fi
 FINALIZE=()
 [[ "$SKIP_FINALIZE" == 1 ]] && FINALIZE=(--skip-finalize)
 
+# bootupd (run by bootc) edits the firmware's boot entries: it deletes every
+# entry labelled "Fedora" — on ANY disk, including the running system's — and
+# creates a new "Fedora" entry for the target. Snapshot them so the damage can
+# be reported afterwards.
+EFI_BEFORE=""
+if command -v efibootmgr >/dev/null && [[ -d /sys/firmware/efi ]]; then
+    EFI_BEFORE=$(mktemp /var/tmp/efibootmgr-before.XXXXXX); efibootmgr -v > "$EFI_BEFORE" 2>/dev/null || true
+fi
+
 # -v /var/lib/containers is REQUIRED: bootc reads its own image from there.
 podman run --rm --privileged --pid=host --ipc=host \
     -v /var/lib/containers:/var/lib/containers \
@@ -255,10 +264,34 @@ podman run --rm --privileged --pid=host --ipc=host \
         "${FINALIZE[@]}" \
         /target
 
+# ─── 7b. Firmware boot entries bootupd removed ─────────────────────────
+if [[ -n "$EFI_BEFORE" ]]; then
+    EFI_AFTER=$(mktemp /var/tmp/efibootmgr-after.XXXXXX); efibootmgr -v > "$EFI_AFTER" 2>/dev/null || true
+    efi_entries() { grep -E '^Boot[0-9A-F]{4}\*? ' "$1" | sed -E 's/^Boot[0-9A-F]{4}\*? +//' | sort; }   # by content, not number
+    removed=$(comm -23 <(efi_entries "$EFI_BEFORE") <(efi_entries "$EFI_AFTER"))
+    if [[ -n "$removed" ]]; then
+        log "WARNING: bootupd removed these firmware boot entries"
+        grep -F "$removed" "$EFI_BEFORE" | grep -E '^Boot' | sed 's/^/    /'
+        info "If one of them is the system you are running NOW, recreate it before rebooting, e.g.:"
+        info "  sudo efibootmgr --create --disk /dev/<its disk> --part <its ESP number> --loader '\\EFI\\fedora\\shimx64.efi' --label 'Fedora <name>'"
+        info "(loader path as shown above; a label other than plain \"Fedora\" survives the next install)"
+        info "$(grep ^BootOrder "$EFI_AFTER")"
+    else
+        info "firmware boot entries: nothing removed"
+    fi
+    rm -f "$EFI_BEFORE" "$EFI_AFTER"
+fi
+
 # ─── 8. crypttab + swap in the new deployment ──────────────────────────
 log "Writing crypttab / fstab into the deployment"
-DEPLOY=$(find "$MOUNT_ROOT/ostree/deploy" -maxdepth 4 -type d -path '*/deploy/*.0' | head -1)
-[[ -n "$DEPLOY" && -d "$DEPLOY/etc" ]] || die "no deployment found under $MOUNT_ROOT/ostree/deploy — bootc did not finish"
+# Exactly $MOUNT_ROOT/ostree/deploy/<stateroot>/deploy/<csum>.<serial>. The old
+# find -path '*/deploy/*.0' also matched ostree's root-only backing/<csum>.0
+# directory, which it listed first — hence a false "no deployment found".
+shopt -s nullglob; deploys=("$MOUNT_ROOT"/ostree/deploy/*/deploy/*.0); shopt -u nullglob
+[[ ${#deploys[@]} -eq 1 ]] || die "expected exactly one deployment under $MOUNT_ROOT/ostree/deploy/*/deploy/, found ${#deploys[@]}: ${deploys[*]:-none}"
+DEPLOY="${deploys[0]}"
+[[ -d "$DEPLOY/etc" ]] || die "$DEPLOY has no etc/ — bootc did not finish"
+STATEROOT=$(dirname "$(dirname "$DEPLOY")")       # its var/ is the booted system's /var
 info "deployment: ${DEPLOY#"$MOUNT_ROOT"}"
 
 {
@@ -301,7 +334,6 @@ fi
 # and set root's password directly in the new deployment.
 CREATE_USER="${CREATE_USER:-${SITE_USER:?SITE_USER not set in $SITE_FILE}}"
 CREATE_USER_UID="${CREATE_USER_UID:-${SITE_UID:-1000}}"
-STATEROOT="$MOUNT_ROOT/ostree/deploy/default"       # its var/ is the booted system's /var
 if [[ -n "$CREATE_USER" ]] && ! grep -q "^$CREATE_USER:" "$DEPLOY/etc/passwd"; then
     log "Creating user $CREATE_USER (uid $CREATE_USER_UID) and setting passwords"
     groups="wheel"

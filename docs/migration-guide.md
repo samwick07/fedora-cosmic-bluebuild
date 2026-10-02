@@ -141,9 +141,11 @@ target `.env` and `site.env` to `/etc/fedora-cosmic-atomic/` on the new system.
    1. Before powering off (2TB still on USB), check the boot entries and the
       target's ESP:
       ```bash
-      sudo efibootmgr -v                       # compare with the copy taken before the install;
-                                               # if BootOrder changed, put the Workstation back first:
-                                               #   sudo efibootmgr -o 0000,<rest>
+      sudo efibootmgr -v                       # compare with the copy taken before the install.
+      # bootupd DELETES every entry labelled "Fedora" (the Workstation's too) and creates a new
+      # "Fedora" entry for the target. Recreate the Workstation's (install-atomic.sh prints what
+      # was removed), with a label other than plain "Fedora" so the next install keeps it:
+      #   sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --loader '\EFI\fedora\shim.efi' --label 'Fedora Workstation 4TB'
       sudo mkdir -p /mnt/esp2 && sudo mount -o ro /dev/disk/by-uuid/<EFI_UUID> /mnt/esp2
       ls -R /mnt/esp2/EFI                      # need EFI/BOOT/BOOTX64.EFI + fbx64.efi, EFI/fedora/shimx64.efi + grubx64.efi
       sudo umount /mnt/esp2
