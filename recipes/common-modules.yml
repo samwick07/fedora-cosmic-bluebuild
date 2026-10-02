@@ -165,6 +165,8 @@ modules:
   # setup-cac.sh          — DoD PKI + OpenSC. --system (root) / --user (chezmoi run_once).
   # migrate-docker-to-podman.sh — one-time Open WebUI/SearXNG volume move.
   # win11-cac             — hand the USB CAC reader to Win11VM and back (attach|detach|status).
+  # cosmic-session-wait   — session start after the greeter released the GPU (cosmic-comp#2690);
+  #                         cosmic.desktop points at it (snippet below).
   # distrobox.ini         — `distrobox assemble create --file /usr/share/distrobox/distrobox.ini`
   #                         (run by chezmoi run_once). Boxes: dev, claude, rocm.
   - type: files@v1
@@ -188,6 +190,8 @@ modules:
         destination: /usr/bin/install-atomic.sh
       - source: scripts/cosmic-report.sh
         destination: /usr/bin/cosmic-report
+      - source: scripts/cosmic-session-wait.sh
+        destination: /usr/bin/cosmic-session-wait
       - source: distrobox/distrobox.ini
         destination: /usr/share/distrobox/distrobox.ini
       - source: systemd/bootc-fetch-apply-updates.service.d/10-stage-only.conf
@@ -196,7 +200,18 @@ modules:
   # git does not reliably preserve the executable bit through the build context.
   - type: script@v2
     snippets:
-      - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report"
+      - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report /usr/bin/cosmic-session-wait"
       # The files module keeps the checkout's modes; with umask 077 these land 0600
       # and the user session / shells / distrobox assemble cannot read them.
       - "chmod 0644 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/10-stage-only.conf /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt"
+
+  # ─────────────────────────────────────────────
+  # LOGIN: wait for the greeter to release the GPU
+  # ─────────────────────────────────────────────
+  # cosmic-comp#2690: the session's compositor starts while the greeter's still
+  # holds /dev/dri/cardN -> EBUSY -> black screen on every login (2TB first boot,
+  # COSMIC 1.8.0). Fails the build if upstream changes the Exec line, so the
+  # workaround never silently drops out. Remove when cosmic-comp retries itself.
+  - type: script@v2
+    snippets:
+      - "f=/usr/share/wayland-sessions/cosmic.desktop; grep -qx 'Exec=/usr/bin/start-cosmic' $f || { echo \"$f: unexpected Exec line:\"; grep '^Exec' $f; exit 1; }; sed -i 's|^Exec=/usr/bin/start-cosmic$|Exec=/usr/bin/cosmic-session-wait|' $f && grep -qx 'Exec=/usr/bin/cosmic-session-wait' $f"

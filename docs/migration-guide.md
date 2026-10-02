@@ -256,7 +256,11 @@ Validation checklist for the test drive (all must pass before the 4TB run):
       It is its own restic host, so it never becomes the parent of, or prunes, the Workstation's snapshots.
       When the test is over: `sudo restic -r $DAS/frmwrk-restic-repo forget --tag test --prune`
 - [ ] `prepare-disk.sh --selftest` passes (the new-drive path works on this image; docs/disaster-recovery.md)
-- [ ] Use it for a few days. Every fix goes into this repo (system) or the dotfiles repo (user) → rebuild / `chezmoi update`
+- [ ] Login reaches the desktop on every cold boot and after log out/in (no black screen;
+      `journalctl -b -t cosmic-session-wait` shows the wait, `known-issues.md`)
+- [ ] Extended use: 3–6 months on the test drive while the 4TB Workstation stays the daily driver
+      (decided 2026-10-02 after the COSMIC login bug). Every fix goes into this repo (system) or the dotfiles
+      repo (user) → rebuild / `chezmoi update`
 
 ### Recording what happens
 
@@ -265,8 +269,8 @@ Validation checklist for the test drive (all must pass before the 4TB run):
 - **Bugs in the image or the scripts** — a GitHub issue each (template asks for `cosmic-report --public`,
   which replaces user/host/UUIDs/tailnet). The fixing commit closes it: `Fixes #n`.
 - **Standing caveats** — `docs/known-issues.md`. **Distilled lessons** — `dotfiles/.migration-prep/LESSONS.md`.
-- **Gate for the 4TB run:** every checklist item above passed and is in the journal, no open issue
-  labelled `blocker`, LESSONS.md reviewed.
+- **Gate for the 4TB run:** every checklist item above passed and is in the journal, the extended test
+  period is over, no open issue labelled `blocker`, LESSONS.md reviewed.
 
 Then the 4TB:
 

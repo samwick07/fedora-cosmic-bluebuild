@@ -28,6 +28,7 @@
 | `/usr/bin/enable-hibernation.sh` | Verify/repair resume + LUKS kargs, swap, SELinux module. `--check`. |
 | `/usr/bin/enable-vfio.sh` | Desktop: bind one NVMe controller to vfio-pci by PCI address. |
 | `/usr/bin/cosmic-report` | State snapshot for the journal or an issue; `--public` redacts user/host/UUIDs/tailnet. |
+| `/usr/bin/cosmic-session-wait` | Session start (`cosmic.desktop` Exec): waits up to 10 s for the greeter to release the GPU, then `start-cosmic`. Workaround for the login black screen (`known-issues.md`). `journalctl -t cosmic-session-wait` shows each wait. |
 | `/usr/bin/migrate-docker-to-podman.sh` | One-time: Open WebUI / SearXNG from Docker to rootless podman. |
 | `/usr/share/distrobox/distrobox.ini` | `distrobox assemble` manifest: `dev` (Fedora; VS Code/Antigravity exported), `claude` (Ubuntu), `rocm`. |
 

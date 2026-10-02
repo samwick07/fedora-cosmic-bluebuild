@@ -6,6 +6,16 @@ moves here when it is a lasting limitation rather than something to fix.
 
 ## Open — verify on the test drive
 
+- **Black screen after login (COSMIC handover race).** Upstream
+  [pop-os/cosmic-comp#2690](https://github.com/pop-os/cosmic-comp/issues/2690) (also
+  [cosmic-greeter#513](https://github.com/pop-os/cosmic-greeter/issues/513)); since COSMIC 1.5.0, still in 1.8.0.
+  greetd starts the session while the greeter's cosmic-comp still holds `/dev/dri/cardN`; the session's
+  cosmic-comp gets EBUSY ("Failed to add device /dev/dri/card1 … Device or resource busy", then "Backend
+  initialized without output") and exits. Hit on every login of the test drive (Framework 13, Ryzen 7040).
+  Workaround in the image: `cosmic.desktop` runs `/usr/bin/cosmic-session-wait`, which waits (max 10 s) until
+  the greeter's compositor and logind session are gone. Untested on hardware until the next image is booted.
+  If it still goes black: Ctrl+Alt+F3 (NOT Ctrl+Alt+Del, which reboots), log in, `sudo systemctl restart
+  cosmic-greeter`. Remove the workaround once upstream fixes it (candidate: cosmic-comp PR #2670).
 - **First real restore.** `post-install-setup.sh` restores home paths into `/var/home` (restoring
   through the `/home` symlink on the read-only root makes restic exit 1 on `lchown`, reproduced in a
   container) and only from host `SITE_HOSTNAME`'s newest snapshot. Tested in containers; the first

@@ -27,18 +27,25 @@ variant=$(run sh -c '. /usr/lib/os-release; echo "$VARIANT_ID"')
 echo "== $IMG (VARIANT_ID=$variant)"
 
 check "bootc present"            run bootc --version
-check "shipped scripts executable" run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report; do test -x "$f" || { echo "not executable: $f"; exit 1; }; done'
+check "shipped scripts executable" run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report /usr/bin/cosmic-session-wait; do test -x "$f" || { echo "not executable: $f"; exit 1; }; done'
 check "shipped data readable (644)" run sh -c 'for f in /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt; do [ "$(stat -c %a "$f")" = 644 ] || { stat -c "%a %n" "$f"; exit 1; }; done'
 check "packages installed"       run rpm -q tailscale restic syncthing chezmoi age ghostty starship swtpm edk2-ovmf NetworkManager-openvpn openssl nss-tools distrobox
 check "base fallbacks kept"      run rpm -q firefox toolbox
 check "no stray top-level dirs"  run bash -c 'x=$(ls / | grep -vE "^(afs|bin|boot|dev|etc|home|lib|lib64|media|mnt|opt|ostree|proc|root|run|sbin|srv|sys|sysroot|tmp|usr|var)$"); [ -z "$x" ] || { echo "$x"; exit 1; }'
-check "shell scripts parse"      run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report; do bash -n "$f" || exit 1; done'
+check "shell scripts parse"      run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report /usr/bin/cosmic-session-wait; do bash -n "$f" || exit 1; done'
 if [[ "$variant" == frmwrk ]]; then
     check "lid -> suspend-then-hibernate" run grep -q '^HandleLidSwitch=suspend-then-hibernate' /etc/systemd/logind.conf.d/10-lid.conf
     check "fprintd installed"     run rpm -q fprintd
     # Graphical LUKS prompt; in text mode kernel messages scroll it away.
     check "kargs.d: rhgb quiet"   run sh -c 'k=$(cat /usr/lib/bootc/kargs.d/*.toml 2>/dev/null); for a in rhgb quiet; do printf "%s" "$k" | grep -q "\"$a\"" || { echo "missing karg $a in /usr/lib/bootc/kargs.d"; exit 1; }; done'
 fi
+# Login black screen workaround (cosmic-comp#2690): the session waits for the greeter.
+check "cosmic.desktop -> cosmic-session-wait" run sh -c '
+    f=/usr/share/wayland-sessions/cosmic.desktop
+    grep -qx "Exec=/usr/bin/cosmic-session-wait" $f || { grep "^Exec" $f; exit 1; }
+    grep -qx "exec /usr/bin/start-cosmic \"\$@\"" /usr/bin/cosmic-session-wait || { echo "wrapper does not exec start-cosmic"; exit 1; }
+    test -x /usr/bin/start-cosmic || { echo "no /usr/bin/start-cosmic"; exit 1; }
+    pgrep -u cosmic-greeter -x cosmic-comp; [ $? -le 1 ] || { echo "pgrep cannot resolve user cosmic-greeter"; exit 1; }'
 # Updates are staged, never applied automatically (no surprise reboots).
 check "bootc timer enabled, stage-only" run sh -c '
     [ "$(systemctl is-enabled bootc-fetch-apply-updates.timer)" = enabled ] || { echo "timer not enabled"; exit 1; }
