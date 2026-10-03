@@ -3,9 +3,12 @@
 Read this first in every session, then `docs/end-state.md`. Keep it short: where things
 stand and the exact next step. No personal values here (write `$SITE_USER`).
 
-Last updated: 2026-10-03 (evening)
+Last updated: 2026-10-03 (late evening)
 
 ## Where things stand
+- **Image and user layer merged** (PR #7, dotfiles PR #2; CI build + smoke test green).
+  Nothing has run on hardware since the refactor. A review of the design against Universal
+  Blue, BlueBuild and bootc practice (with proposed spec changes) is in the Project, not here.
 - **Refactor in progress.** The first test install (2TB, 2026-10-02/03) showed that the
   end state had been copied from the Workstation and installed by one imperative script.
   New approach: write the spec (`docs/end-state.md`), then build image → user layer →
@@ -41,19 +44,19 @@ Last updated: 2026-10-03 (evening)
   (it holds the private journal, lessons and migration checklist).
 
 ## Next (in order)
-1. Image PR #7 (F9 package set, nightly job, CAC + DoD roots, old installer retired): its
-   CI build + smoke test runs on the PR (failures now show as annotations on the PR page);
-   merge when green → the nightly build publishes it. Merge this PR (#6) first.
-2. Dotfiles PR #2 (`user-layer-f9`): boxes (dev, claude, rocm; `vpn` by hand), chezmoi
-   externals, CAC for Chrome in `dev`, Syncthing user unit, topgrade manual, Homebrew
-   retired. Merge with #7: the image no longer ships `distrobox.ini`.
-3. Docs PR: `docs/install.md` (L1), retire the old guides, update CLAUDE.md/README; spec
-   C1: gh, btop, fastfetch moved from externals into the `dev` box.
+1. Decide the pre-install proposals from the review (each needs a spec row first):
+   acceptance checklist (spec section 6, still empty) and a host-side check script; the DAS
+   write rule (CLAUDE.md says read-only, but W1/W4 and J1's snapshots write to it);
+   signature enforcement after `bootc switch` (L1); btrfs layout check at install.
+2. Docs PR: `docs/install.md` (L1), retire `migration-guide.md` and `clean-room.md`,
+   rewrite `disaster-recovery.md`, update CLAUDE.md layout table and README; spec C1: gh,
+   btop, fastfetch moved from externals into the `dev` box.
+3. Confirm the first nightly CI run publishes and signs the F9 image.
 4. Workstation, read-only, before the laptop moves: MIGRATION W1 (Docker volumes), W2
    (Cisco facts).
 5. 2TB: install (stock ISO + `bootc switch`) → image checks (incl. `cac-status`, the
-   nightly job with `--dry-run`) → user layer → its checks (VPN trial, CAC in Chrome,
-   Firefox and the VM) → MIGRATION part B.
+   nightly job with `--dry-run`) → `chezmoi init --apply` → user-layer checks (VPN trial,
+   CAC in Chrome, Firefox and the VM) → MIGRATION part B.
 
 ## Facts that are easy to forget
 - Restic: `/run/media/$SITE_USER/DAS/frmwrk-restic-repo`, password file
