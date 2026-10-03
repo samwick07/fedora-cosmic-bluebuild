@@ -3,7 +3,7 @@
 Read this first in every session, then `docs/end-state.md`. Keep it short: where things
 stand and the exact next step. No personal values here (write `$SITE_USER`).
 
-Last updated: 2026-10-03 15:45 EDT
+Last updated: 2026-10-03 16:15 EDT
 
 ## Where things stand
 - **Refactor in progress.** The first test install (2TB, 2026-10-02/03) showed that the
@@ -22,7 +22,7 @@ Last updated: 2026-10-03 15:45 EDT
 - **Evidence so far:** fingerprint `sudo` is in daily use on the Workstation → P6 keep.
 - **Held fixes** from the first run are on branch `held/first-run-fixes` (scrubbed,
   not for merge as-is). Take what the spec asks for (the flatpak retry drop-ins → N1).
-- **Spec confirmed** (2026-10-03) except O1 (drift report). F9: base image as close to
+- **Spec confirmed** (2026-10-03). Custom image kept (F4, revisit condition recorded). F9: base image as close to
   stock as possible (layered: libvirt stack, Tailscale, and NetworkManager-openconnect for
   the VPN trial). Nightly build in GitHub Actions. Backups: rsync snapshots on the DAS +
   restic to Backblaze B2.
@@ -30,6 +30,9 @@ Last updated: 2026-10-03 15:45 EDT
   Client in the rootful `vpn` box, Windscribe as native NetworkManager WireGuard and as its
   app in `vpn`. Try each on the 2TB, keep what works; the rest is removed. N6 (`.local`
   name over the VPN) postponed: the name moves to a real domain.
+- **Nightly job J1:** backup → drift report → staged upgrades → report; never reboots.
+- **CAC is a must** in the Win11 VM (V2), Chrome in `dev` and base Firefox (V3); DoD roots
+  baked into the image at build time (V4).
 - **Rebuild plan:** `docs/rebuild-plan.md` lists keep/change/retire for every file in both
   repos.
 - **One status file:** this one. `dotfiles/.migration-prep/HANDOFF.md` keeps only private

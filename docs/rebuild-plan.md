@@ -19,13 +19,15 @@ user layer; nothing here is migration (that is `dotfiles/.migration-prep/MIGRATI
 | `files/scripts/win11-cac.sh` | keep | V2. |
 | `files/scripts/cosmic-report.sh` | keep | Diagnostics; take `--offline` from `held/first-run-fixes`. |
 | `files/scripts/fix-signing-registry.sh` | keep | Needed while local BlueBuild builds sign for `localhost/`. |
-| `files/systemd/bootc-fetch-apply-updates.service.d/10-stage-only.conf` | keep | L2 backstop. |
+| `files/systemd/bootc-fetch-apply-updates.service.d/10-stage-only.conf` | **retire** | J1 is the only updater; it stages with `bootc upgrade` and never reboots. |
 | flatpak retry drop-ins (`held/first-run-fixes`) | **add** | N1. |
 | i2c udev rule + `i2c-dev` modules-load | **add** | P11 (config files only; `ddcutil` lives in `dev`). |
 | TPM2 dracut config | **add** | P9 (the initramfs can unlock LUKS with TPM2 + PIN). |
+| Firefox enterprise policy `/etc/firefox/policies/policies.json` | **add** | V3b: loads OpenSC as a security device in the base Firefox. |
+| nightly job: `/usr/bin/frmwrk-nightly` + `frmwrk-nightly.service`/`.timer` | **add** | J1: backup (S2a/S2b), drift report (O1), staged upgrades, report; never reboots. Generic; targets and keys come from a private `/etc/fedora-cosmic-atomic/nightly.env` written during migration. |
 | `files/scripts/enable-vfio.sh`, `configure-amd-gpu-desktop.sh` | keep | dsktp only. |
 | `files/scripts/configure-amd-gpu-framework.sh`, `files/etc/environment.d/50-amd-common.conf`, `files/etc/profile.d/amd-common.sh` | **retire** | ROCm variables belong to the `rocm` box (E3), not the host session. |
-| `files/scripts/setup-cac.sh` | **retire** | Host CAC = base `pcscd` only; opensc and the NSS db move to `dev` (V3), set up by the user layer with a timeout. |
+| `files/scripts/setup-cac.sh` | **change** | Split. The DoD bundle download + verification (pinned root) moves into the **build** (V4: roots into the image's system trust; `openssl` exists only in the build step). The host keeps `--check`. The Chrome part (NSS db in `~/.pki/nssdb`, OpenSC module, with a timeout) moves to the dotfiles (`run_once_40-cac`). |
 | `files/scripts/install-atomic.sh`, `install-to-disk.sh`, `make-target-env.sh`, `prepare-disk.sh` (+ the `scripts/` symlinks) | **retire** | L1: stock ISO + `bootc switch`. |
 | `files/scripts/post-install-setup.sh` | **retire** | Bring-up = image + user layer; one-time steps = MIGRATION.md. |
 | `files/scripts/migrate-docker-to-podman.sh` | **retire** | One-time (MIGRATION W1/M6). |
@@ -43,7 +45,7 @@ user layer; nothing here is migration (that is `dotfiles/.migration-prep/MIGRATI
 | `scripts/targets/site.example.env` | **change** | Keep only what `check-leaks.sh` uses (user, UUIDs to never publish). |
 | `scripts/inventory-workstation.sh` | keep | Evidence for dsktp later. |
 | `scripts/reregister-win11vm.sh`, `scripts/test/syncthing-test-device.sh` | **retire** | Migration-only (M7, M3). |
-| `backup/frmwrk_backup_command.sh`, `backup/frmwrk-restic-excludes` | **retire after S2 runs** | The Workstation still uses them; S2 (dotfiles) replaces them. |
+| `backup/frmwrk_backup_command.sh`, `backup/frmwrk-restic-excludes` | **retire after J1 runs** | The Workstation still uses them; J1's backup step replaces them. |
 | `docs/migration-guide.md`, `docs/clean-room.md` | **retire** | Replaced by the spec, `docs/install.md` (new) and MIGRATION.md. |
 | `docs/install.md` | **add** | L1 step by step: stock ISO, partitioning for F2, `bootc switch` twice, Secure Boot off, karg check. |
 | `docs/disaster-recovery.md` | **change** | Reinstall = `docs/install.md` + user layer + restore from S2 (rsync snapshot or B2). |
@@ -60,19 +62,19 @@ user layer; nothing here is migration (that is `dotfiles/.migration-prep/MIGRATI
 | `run_once_20-distrobox.sh.tmpl` + `distrobox.ini` (moved here) | **change** | Boxes `dev` (Chrome, VS Code, Antigravity, Ghostty, toolchain, AI CLIs, nmap, 7zip, ddcutil, opensc), `claude` (Claude Desktop + Claude Code CLI, exported), `rocm` (ROCm env vars), `vpn` (rootful, systemd; Cisco Secure Client, Windscribe app). Runs as the user, no sudo except the rootful box. |
 | `run_once_25-claude-cli.sh.tmpl` | **retire** | Folded into the `claude` box definition. |
 | `run_once_30-flatpak-overrides.sh.tmpl` | **change** | Only what the confirmed flatpaks need (Bottles). |
-| `run_once_40-cac.sh.tmpl` | **change** | CAC setup inside `dev` (NSS db, opensc), bounded by a timeout. |
+| `run_once_40-cac.sh.tmpl` | **change** | Chrome CAC in `dev` (V3a): DoD certs + OpenSC module into `~/.pki/nssdb`, bounded by a timeout; certs taken from the host's system trust (V4), no download. |
 | `run_once_50-syncthing.sh.tmpl` | **change** | Syncthing from `~/.local/bin`, user unit; test-install identity rules stay. |
 | `run_onchange_60-user-dirs.sh.tmpl` | keep | — |
 | `dot_config/ghostty/`, `starship.toml`, `dot_bashrc.tmpl`, `dot_bash_profile`, `dot_gitconfig.tmpl` | keep | — |
-| `dot_config/topgrade.toml.tmpl` | **change** | The daily routine: backup first (S2c), then `bootc upgrade`, flatpaks, boxes; no brew. |
-| backup scripts + user timer | **add** | S2a–S2d. |
+| `dot_config/topgrade.toml.tmpl` | **change** | Manual update run only (J1 does the scheduled one); no brew. |
+| backup scripts + user timer | **not here** | Backups run in the image's nightly job (J1); the dotfiles only hold the user-side pieces it calls, if any. |
 | `dot_config/systemd/user/hermes-gateway.service` | keep | E5. |
 | `dot_local/bin/hibernate-check`, `iommu.sh`, `pikvm.sh` | keep | Per machine via `.chezmoiignore`. |
 | `.migration-prep/c-history-rewrite.sh` | **retire** | One-off from 2026-10-01, done. |
 
 ## Order of work
 
-1. Image PR: recipes + files per the table, smoke test updated; nightly CI builds it.
+1. Image PR: recipes + files per the table (incl. DoD roots at build time, Firefox policy, J1), smoke test updated; nightly CI builds it.
 2. Docs PR: `docs/install.md`, retire the old guides, update CLAUDE.md/README.
-3. Dotfiles PR: externals, boxes, topgrade routine, backups, retire Homebrew.
+3. Dotfiles PR: externals, boxes, CAC for Chrome, topgrade (manual), retire Homebrew.
 4. Test on the 2TB: install (L1) → image checks → user layer → its checks → MIGRATION.md part B.
