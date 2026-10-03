@@ -5,8 +5,8 @@
 # CPU: AMD Ryzen 7040U (Phoenix, Zen 4)
 # GPU: Integrated Radeon 780M (RDNA3, reports as gfx1103) — no discrete GPU
 # Display: Framework 13" panel
-# Special: Laptop power management, fingerprint reader, ambient light sensor,
-#          suspend-then-hibernate on lid close (96 GB LUKS swap partition)
+# Special: fingerprint reader (P6), suspend-then-hibernate on lid close (F2/P2,
+#          96 GB LUKS swap partition), TPM2 + PIN unlock of LUKS (P9)
 #
 # Local build:   bluebuild build -B podman recipes/recipe-frmwrk.yml
 #                -> localhost/fedora-cosmic-frmwrk:latest
@@ -32,31 +32,34 @@ modules:
     install:
       install-weak-deps: false
       packages:
-        - iio-sensor-proxy        # ambient light sensor / rotation
-        - fprintd                 # fingerprint reader
+        - fprintd                 # P6 fingerprint reader
         - fprintd-pam
+        - checkpolicy             # build time only: compiles the hibernation SELinux module, removed below
         # power-profiles-daemon is NOT listed: it conflicts with tuned-ppd,
         # which the base image ships and which provides the same D-Bus API.
-
-  # ─────────────────────────────────────────────
-  # FRAMEWORK-SPECIFIC AMD GPU CONFIG
-  # ─────────────────────────────────────────────
-  # The 780M is gfx1103; ROCm has no kernels for it and needs
-  # HSA_OVERRIDE_GFX_VERSION=11.0.0 to run gfx1100 code on it.
-  - type: script@v2
-    scripts:
-      - configure-amd-gpu-framework.sh
 
   # ─────────────────────────────────────────────
   # HIBERNATION: suspend-then-hibernate on lid close
   # ─────────────────────────────────────────────
   # Bakes in: sleep.conf.d + logind.conf.d drop-ins, SELinux policy module.
-  # resume= and rd.luks.uuid= are per-installation and are set by
-  # scripts/install-atomic.sh (bootc path) or by enable-hibernation.sh
-  # (Anaconda path). See docs/hibernation-setup.md.
+  # resume= and rd.luks.uuid= are per installation: Anaconda writes them (stock ISO,
+  # spec L1); enable-hibernation.sh checks and adds what is missing.
+  # See docs/hibernation-setup.md.
   - type: script@v2
     scripts:
       - configure-hibernation.sh
+
+  - type: script@v2
+    snippets:
+      - "dnf -y -q remove checkpolicy"
+
+  # ─────────────────────────────────────────────
+  # P9: TPM2 unlock of LUKS (with a PIN) — tpm2-tss in the initramfs
+  # ─────────────────────────────────────────────
+  - type: files@v1
+    files:
+      - source: lib/90-tpm2.conf
+        destination: /usr/lib/dracut/dracut.conf.d/90-tpm2.conf
 
   - type: files@v1
     files:
@@ -65,7 +68,7 @@ modules:
 
   - type: script@v2
     snippets:
-      - "chmod 0755 /usr/bin/enable-hibernation.sh"
+      - "chmod 0755 /usr/bin/enable-hibernation.sh && chmod 0644 /usr/lib/dracut/dracut.conf.d/90-tpm2.conf"
 
   # ─────────────────────────────────────────────
   # BOOT SPLASH: graphical LUKS prompt

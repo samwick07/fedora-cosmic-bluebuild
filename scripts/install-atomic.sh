@@ -1,1 +1,0 @@
-../files/scripts/install-atomic.sh

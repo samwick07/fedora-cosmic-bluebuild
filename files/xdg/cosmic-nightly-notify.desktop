@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Nightly job report
+Comment=Shows the last nightly backup, drift and upgrade report once
+Exec=/usr/bin/cosmic-nightly-notify
+NoDisplay=true
+X-GNOME-Autostart-Delay=20

@@ -1,1 +1,0 @@
-../files/scripts/prepare-disk.sh

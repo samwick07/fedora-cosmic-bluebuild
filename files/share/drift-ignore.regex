@@ -1,0 +1,14 @@
+# /etc paths that change on every machine and are not drift (extended regex,
+# matched against `ostree admin config-diff` lines).
+/?(machine-id|hostname|localtime|adjtime|resolv\.conf|\.updated|\.pwd\.lock)$
+/?(passwd|group|shadow|gshadow|subuid|subgid)-?$
+/?(crypttab|fstab|kernel/cmdline)$
+/?ssh/ssh_host_
+/?NetworkManager/system-connections/
+/?pki/ca-trust/extracted/
+/?libvirt/(qemu/.*\.xml|qemu/networks/autostart/|secrets/|storage/)
+/?fedora-cosmic-atomic/(nightly\.env|.*\.pass)$
+/?(selinux/targeted/(active|contexts/files/file_contexts\.local)|lvm/)
+/?(cups/|tailscale/|fwupd/|containers/(storage\.conf|registries\.conf\.d/))
+/?systemd/system/(.*\.wants/)?(tailscaled|pcscd|virt.*|cosmic-nightly)\.
+/?(xdg/autostart/cosmic-nightly-notify\.desktop|udev/hwdb\.bin)$

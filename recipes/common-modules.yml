@@ -1,116 +1,64 @@
 ---
 # yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
 #
-# Shared modules for both Framework 13 and desktop.
-# Both machines are all-AMD (Framework: Ryzen 7040 APU, Desktop: Ryzen 9950X + RX 9070 XT).
+# Shared modules for the laptop (frmwrk) and the desktop (dsktp).
+# Every line here answers to a row of docs/end-state.md (the spec).
 #
-# LAYERING POLICY (clean-room):
-#   The image is the SYSTEM layer only. Layer what needs the host kernel,
-#   systemd, /dev, or must exist before the user layer can bootstrap:
-#     - Daemons: tailscale, syncthing, libvirt, pcscd, NetworkManager plugins
-#     - Hardware/root tools: restic, smartmontools, gdisk, lm_sensors
-#     - Host shell + bootstrap: ghostty, tmux, starship, topgrade, chezmoi, age, distrobox
-#   Everything else:
-#     - GUI apps        -> flatpaks (list below)
-#     - CLI tools       -> Homebrew (~/.Brewfile in the dotfiles repo)
-#     - Dev toolchains  -> distrobox `dev` (Fedora), `claude` (Ubuntu), `rocm`
-#     - User config     -> chezmoi (github.com/samwick07/dotfiles)
-#     - Data            -> Syncthing (live) + restic on the DAS (archive)
+# F9 — BASE IMAGE AS CLOSE TO STOCK AS POSSIBLE:
+#   An RPM is layered only when it needs the host kernel or a host service, or when
+#   the root nightly job runs it (root must never execute files the user can write).
+#   Configuration files are fine. Everything else is a flatpak, a distrobox
+#   (dotfiles: dev, claude, rocm, vpn) or a single binary in $HOME (dotfiles).
 #
-# OSTREE PATH RULES (why every destination below is /usr/bin or /usr/share):
-#   /usr/local -> /var/usrlocal, /opt -> /var/opt, /home -> /var/home.
-#   Anything written under /var during the build is applied ONCE by
-#   `bootc install` and never again on rebase or upgrade. Ship image content
-#   under /usr and /etc only.
+# OSTREE PATH RULES: ship under /usr and /etc only. /usr/local -> /var/usrlocal,
+# /opt -> /var/opt, /home -> /var/home; anything written under /var at build time is
+# applied once by `bootc install` and never again on upgrade.
 
 modules:
   # ─────────────────────────────────────────────
-  # STATIC CONFIG FILES  (files/etc/** -> /etc/**)
-  # ─────────────────────────────────────────────
-  - type: files@v1
-    files:
-      - source: etc
-        destination: /etc
-
-  # ─────────────────────────────────────────────
-  # RPM PACKAGES (host image only — cannot be containerized)
+  # PACKAGES (the whole layered set; spec F9)
   # ─────────────────────────────────────────────
   - type: dnf@v1
     repos:
-      copr:
-        - scottames/ghostty        # Ghostty terminal (host shell)
-        - atim/starship            # Starship prompt (host shell)
-        - lilay/topgrade           # topgrade system updater (needs host rpm-ostree/flatpak)
       files:
         - https://pkgs.tailscale.com/stable/fedora/tailscale.repo
       keys:
         - https://pkgs.tailscale.com/stable/fedora/repo.gpg
-
     install:
-      # Weak deps stay off to keep the image small; anything we actually rely on
-      # that would normally arrive as a Recommends is listed explicitly below.
       install-weak-deps: false
       packages:
-        # ── Networking (kernel/systemd integration) ──
-        - tailscale                    # systemd service, /dev/net/tun
-        - NetworkManager-openvpn       # restored /etc/NetworkManager profiles use these
-        - NetworkManager-openconnect
-        - openvpn
-        - openconnect
-
-        # ── Backup + file sync (daemons / sudoers) ──
-        - restic
-        - syncthing                    # user unit syncthing.service, enabled by chezmoi run_once
-
-        # ── User-config bootstrap (must exist before any container does) ──
-        - chezmoi
-        - age
-
-        # ── Host shell tools (must run on host, not in container) ──
-        - git                          # full git (base only has git-core), for dotfiles/yadm
-        - starship
-        - ghostty
-        - tmux
-        - topgrade
-
-        # ── Hardware diagnostics (direct /dev access) ──
-        - gdisk
-        - smartmontools
-        - lm_sensors
-
-        # ── Virtualization (kernel KVM, systemd services) ──
-        - virt-manager
+        # V1: Win11 VM (KVM, libvirt modular daemons, UEFI + Secure Boot, TPM 2.0)
         - qemu-kvm
         - libvirt
         - libvirt-daemon-kvm
-        - edk2-ovmf                    # UEFI firmware for the Win11 VM (weak dep otherwise)
-        - swtpm                        # TPM 2.0 emulator required by Win11 (weak dep otherwise)
+        - edk2-ovmf
+        - swtpm
         - swtpm-tools
-
-        # ── Containers (podman is in the base) ──
-        - distrobox                    # containers defined in /usr/share/distrobox/distrobox.ini (distrobox assemble)
-
-        # ── CAC/Smart card (DoD PKI) ──
-        # opensc, pcsc-lite, pcsc-lite-ccid, p11-kit are in the base image.
-        - nss-tools                    # certutil/modutil for browser cert management
-        - openssl                      # setup-cac.sh: verify + split the DoD PKCS#7 bundle (base has only the libs)
-
-        # ── SELinux tooling ──
-        - checkpolicy                  # checkmodule, so configure-hibernation.sh can compile its policy at build time
-        - policycoreutils-python-utils # audit2allow / semanage on the host
-
-        # ── Already in base image (do NOT re-install) ──
-        # podman, toolbox, firefox, python3, nvme-cli, ntfs-3g, exfatprogs, cifs-utils
-        #   (firefox + toolbox stay on purpose: fallbacks if Chrome or distrobox break.
-        #    Boxes are distrobox; dev uses plain fedora:44 so Toolbx never adopts it.)
-        # linux-firmware, mesa drivers, vulkan-loader, pipewire, bootc, bootupd
-        # opensc, pcsc-lite, pcsc-lite-ccid, p11-kit, p11-kit-trust
+        # N3: Tailscale (host daemon, /dev/net/tun)
+        - tailscale
+        # N4: VPN trial — Cisco (AnyConnect protocol) from COSMIC's network menu.
+        #     Removed again if the trial picks the vendor client in the vpn box.
+        - NetworkManager-openconnect
+        # J1: run by the root nightly job (never a user-writable binary under root)
+        - restic
+        - distrobox
+        # V3/V2: CAC on the host — pcscd, CCID driver, OpenSC (p11-kit module for
+        # Firefox). Already in the base: listing them is a no-op that documents the need.
+        - pcsc-lite
+        - pcsc-lite-ccid
+        - opensc
 
   # ─────────────────────────────────────────────
-  # SYSTEMD SERVICES
+  # V4: DoD PKI roots in the system trust (build step, verified, no runtime fetch)
   # ─────────────────────────────────────────────
-  # libvirt runs as modular daemons on Fedora. Do NOT enable libvirtd.service —
-  # it conflicts with the virt*d sockets and one of them fails at boot.
+  - type: script@v2
+    scripts:
+      - install-dod-roots.sh
+
+  # ─────────────────────────────────────────────
+  # SERVICES
+  # ─────────────────────────────────────────────
+  # libvirt runs as modular daemons on Fedora. Do NOT enable libvirtd.service.
   - type: systemd@v1
     system:
       enabled:
@@ -122,91 +70,86 @@ modules:
         - virtnodedevd.socket
         - virtsecretd.socket
         - virtinterfaced.socket
-        - bootc-fetch-apply-updates.timer   # stage-only (drop-in 10-stage-only.conf): never reboots
+        - cosmic-nightly.timer          # J1: backup, drift, staged upgrades; never reboots
 
   # ─────────────────────────────────────────────
-  # FLATPAKS (GUI apps — sandboxed, auto-updated)
+  # FLATPAKS (GUI apps; spec 3.5). Keep in step with files/share/flatpaks.list
+  # (the drift report's reference; the smoke test compares the two).
   # ─────────────────────────────────────────────
-  # The module configures the Flathub remote itself (system and user scope)
-  # and installs the list on first boot via a systemd service.
+  # Browsers are not flatpaks: Chrome is the RPM in the dev distrobox, Firefox
+  # the base image's RPM (both CAC capable).
   - type: default-flatpaks@v2
     configurations:
       - notify: true
         scope: system
         install:
-          # Browsers: Chrome is the RPM in the dev distrobox (distrobox.ini),
-          # Firefox the base image's RPM.
-          # ── System utilities ──
-          - com.github.tchx84.Flatseal
-          - it.mijorus.gearlever              # AppImage manager (Claude Desktop lives in ~/AppImages)
-          # ── Media / creative ──
-          - org.videolan.VLC
-          - org.gimp.GIMP
-          - org.inkscape.Inkscape
-          - org.darktable.Darktable
-          # ── Office / reading ──
-          - org.libreoffice.LibreOffice
-          - com.calibre_ebook.calibre
-          # ── Messaging ──
-          - org.signal.Signal
-          # ── Windows apps + games (replace the wine RPMs and steam RPM) ──
-          - com.usebottles.bottles
-          - com.valvesoftware.Steam
-          # ── Remote access ──
-          - org.remmina.Remmina               # RDP/VNC (replaces freerdp/tigervnc RPMs)
+          - com.collaboraoffice.Office      # A16 office
+          - org.signal.Signal               # A16b
+          - org.videolan.VLC                # A16b
+          - org.inkscape.Inkscape           # A16b
+          - org.gimp.GIMP                   # A7
+          - org.darktable.Darktable         # A7
+          - com.calibre_ebook.calibre       # A8
+          - org.remmina.Remmina             # A12 RDP
+          - com.usebottles.bottles          # A11 Notepad++ and other small Windows apps
+          - com.github.tchx84.Flatseal      # A13
+          - org.virt_manager.virt-manager   # A14 trial: manages qemu:///system? else layer it
       - scope: user
 
   # ─────────────────────────────────────────────
-  # HOST SCRIPTS SHIPPED IN THE IMAGE  (files/scripts/* -> /usr/bin/*)
+  # FILES SHIPPED IN THE IMAGE
   # ─────────────────────────────────────────────
-  # post-install-setup.sh — root half of a rebuild: DAS, allowlist restore from
-  #                         restic, hibernation check, CAC system trust, VMs,
-  #                         then hands over to `chezmoi init --apply`.
-  # setup-cac.sh          — DoD PKI + OpenSC. --system (root) / --user (chezmoi run_once).
-  # migrate-docker-to-podman.sh — one-time Open WebUI/SearXNG volume move.
-  # win11-cac             — hand the USB CAC reader to Win11VM and back (attach|detach|status).
-  # cosmic-session-wait   — session start after the greeter released the GPU (cosmic-comp#2690);
-  #                         cosmic.desktop points at it (snippet below).
-  # distrobox.ini         — `distrobox assemble create --file /usr/share/distrobox/distrobox.ini`
-  #                         (run by chezmoi run_once). Boxes: dev, claude, rocm.
+  # cosmic-nightly        J1: the one scheduled job (+ timer/service, notifier, settings template)
+  # cosmic-session-wait   D1: login waits until the greeter released the GPU (cosmic-comp#2690)
+  # win11-cac             V2: hand the USB CAC reader to Win11VM and back
+  # cac-status            V2–V4: read-only CAC report
+  # cosmic-report         machine state for the journal or a bug report (--public, --offline)
   - type: files@v1
     files:
-      - source: scripts/post-install-setup.sh
-        destination: /usr/bin/post-install-setup.sh
-      - source: scripts/setup-cac.sh
-        destination: /usr/bin/setup-cac.sh
-      - source: scripts/migrate-docker-to-podman.sh
-        destination: /usr/bin/migrate-docker-to-podman.sh
-      - source: scripts/win11-cac.sh
-        destination: /usr/bin/win11-cac
-      # Reinstall / new-disk tooling and the report helper (docs/disaster-recovery.md)
-      - source: scripts/install-to-disk.sh
-        destination: /usr/bin/install-to-disk.sh
-      - source: scripts/prepare-disk.sh
-        destination: /usr/bin/prepare-disk.sh
-      - source: scripts/make-target-env.sh
-        destination: /usr/bin/make-target-env.sh
-      - source: scripts/install-atomic.sh
-        destination: /usr/bin/install-atomic.sh
-      - source: scripts/cosmic-report.sh
-        destination: /usr/bin/cosmic-report
+      - source: scripts/cosmic-nightly.sh
+        destination: /usr/bin/cosmic-nightly
+      - source: scripts/cosmic-nightly-notify.sh
+        destination: /usr/bin/cosmic-nightly-notify
       - source: scripts/cosmic-session-wait.sh
         destination: /usr/bin/cosmic-session-wait
-      - source: distrobox/distrobox.ini
-        destination: /usr/share/distrobox/distrobox.ini
-      - source: systemd/bootc-fetch-apply-updates.service.d/10-stage-only.conf
-        destination: /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/10-stage-only.conf
+      - source: scripts/win11-cac.sh
+        destination: /usr/bin/win11-cac
+      - source: scripts/cac-status.sh
+        destination: /usr/bin/cac-status
+      - source: scripts/cosmic-report.sh
+        destination: /usr/bin/cosmic-report
+      - source: systemd/system/cosmic-nightly.service
+        destination: /usr/lib/systemd/system/cosmic-nightly.service
+      - source: systemd/system/cosmic-nightly.timer
+        destination: /usr/lib/systemd/system/cosmic-nightly.timer
+      - source: xdg/cosmic-nightly-notify.desktop
+        destination: /etc/xdg/autostart/cosmic-nightly-notify.desktop
+      - source: share/flatpaks.list
+        destination: /usr/share/fedora-cosmic-atomic/flatpaks.list
+      - source: share/drift-ignore.regex
+        destination: /usr/share/fedora-cosmic-atomic/drift-ignore.regex
+      - source: share/nightly.example.env
+        destination: /usr/share/fedora-cosmic-atomic/nightly.example.env
+      # N1: first boot has no network; the default-flatpaks units retry until it works
+      - source: systemd/system-flatpak-setup.service.d/20-retry.conf
+        destination: /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf
+      - source: systemd/user-flatpak-setup.service.d/20-retry.conf
+        destination: /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf
+      # P11: DDC/CI monitor brightness without root (ddcutil lives in the dev box)
+      - source: lib/i2c-dev.conf
+        destination: /usr/lib/modules-load.d/i2c-dev.conf
+      - source: lib/60-i2c-uaccess.rules
+        destination: /usr/lib/udev/rules.d/60-i2c-uaccess.rules
 
-  # git does not reliably preserve the executable bit through the build context.
+  # git does not reliably preserve modes through the build context; with umask 077
+  # data files would land 0600 and the user session could not read them.
   - type: script@v2
     snippets:
-      - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report /usr/bin/cosmic-session-wait"
-      # The files module keeps the checkout's modes; with umask 077 these land 0600
-      # and the user session / shells / distrobox assemble cannot read them.
-      - "chmod 0644 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/10-stage-only.conf /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt"
+      - "chmod 0755 /usr/bin/cosmic-nightly /usr/bin/cosmic-nightly-notify /usr/bin/cosmic-session-wait /usr/bin/win11-cac /usr/bin/cac-status /usr/bin/cosmic-report"
+      - "chmod 0644 /usr/lib/systemd/system/cosmic-nightly.service /usr/lib/systemd/system/cosmic-nightly.timer /etc/xdg/autostart/cosmic-nightly-notify.desktop /usr/share/fedora-cosmic-atomic/flatpaks.list /usr/share/fedora-cosmic-atomic/drift-ignore.regex /usr/share/fedora-cosmic-atomic/nightly.example.env /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf /usr/lib/modules-load.d/i2c-dev.conf /usr/lib/udev/rules.d/60-i2c-uaccess.rules"
 
   # ─────────────────────────────────────────────
-  # LOGIN: wait for the greeter to release the GPU
+  # D1 LOGIN: wait for the greeter to release the GPU
   # ─────────────────────────────────────────────
   # cosmic-comp#2690: the session's compositor starts while the greeter's still
   # holds /dev/dri/cardN -> EBUSY -> black screen on every login (2TB first boot,
