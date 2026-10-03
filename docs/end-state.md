@@ -142,7 +142,7 @@ use go into the image and the rest into the dev box.
 
 | ID | Topic | Options | State |
 | --- | --- | --- | --- |
-| L1 | Install path | **A**: Fedora COSMIC Atomic ISO (Anaconda, custom partitioning: ESP, /boot, LUKS swap ≥ RAM, LUKS btrfs root), then `bootc switch` to the signed image; `enable-hibernation.sh` adds `resume=`. Supported, no firmware surprises. **B**: custom `install-atomic.sh` (447 lines; a day of bootupd/NVRAM fixes). | **recommend A**, to decide |
+| L1 | Install path | **Stock Fedora COSMIC Atomic ISO** (Anaconda), then `bootc switch` to the signed image. Anaconda custom partitioning: ESP, ext4 /boot, LUKS2 swap ≥ RAM, LUKS2 btrfs root, one passphrase. First `sudo bootc switch ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` (unverified), reboot, then `sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` (the signing policy ships in the image; `docs/local-build.md`). Then check kargs (`rd.luks.uuid` for swap, `resume=`); `enable-hibernation.sh` adds what is missing. Secure Boot off after install (F2). Retires `install-atomic.sh`, `prepare-disk.sh`, `make-target-env.sh`, `install-to-disk.sh`. | **confirmed** 2026-10-03 |
 | L2 | Updates: staged automatically, applied at a reboot you choose | `bootc-fetch-apply-updates` drop-in (exists) | candidate |
 | L3 | Rollback: previous deployment in the GRUB menu | built in | confirmed |
 | L4 | Rescue: the retired test drive as a bootable spare | — | candidate |
@@ -179,9 +179,8 @@ Answered from the Workstation inventory and by you:
 - VPN profiles still in use? (N3)
 - Fingerprint, ambient light? (P6, P7)
 - SSH and identity policy for a new machine (I1, I2)
-- Install path A or B (L1)
 
 ## Change log
 
 - 2026-10-03: draft after the first test run; F1 (COSMIC) and F2 (hibernation) confirmed
-  as hard requirements.
+  as hard requirements; L1 confirmed: stock ISO + `bootc switch`.

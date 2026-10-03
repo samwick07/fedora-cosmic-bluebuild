@@ -10,7 +10,8 @@ Last updated: 2026-10-03 13:15 EDT
   end state had been copied from the Workstation and installed by one imperative script.
   New approach: write the spec (`docs/end-state.md`), then build image → user layer →
   migration checklist, each tested alone.
-- **Fixed:** COSMIC (F1) and hibernation (F2) are hard requirements.
+- **Fixed:** COSMIC (F1) and hibernation (F2) are hard requirements; install path (L1) is
+  the stock COSMIC Atomic ISO, then `bootc switch` to the signed image.
 - **Laptop:** back on the 4TB Workstation (daily driver, untouched). The 2TB is in the USB
   enclosure, untouched: it is a record of the first run and will be reinstalled.
 - **Held, not pushed:** the 7 commits from the first run's debugging (step 5/6 fixes,
@@ -22,8 +23,7 @@ Last updated: 2026-10-03 13:15 EDT
 1. On the Workstation: `scripts/inventory-workstation.sh` (read-only), then attach the
    output file to the chat. It is private; never commit it.
 2. Go through `docs/end-state.md`: answer section 7, mark every candidate row
-   keep / change / drop, and decide L1 (install path: Anaconda + `bootc switch`,
-   recommended, vs. `install-atomic.sh`).
+   keep / change / drop. (L1 decided: stock COSMIC Atomic ISO + `bootc switch`.)
 3. From the confirmed spec: a keep/retire list for this repo and the dotfiles repo, then
    rebuild the image layer and test it on the 2TB with nothing restored.
 
