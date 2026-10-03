@@ -1,45 +1,53 @@
-# Operations: daily tasks, shipped tools, design decisions
+# Operations: the daily routine, shipped tools, design decisions
 
-## Daily tasks
+## Daily
 
 | Task | How |
 | --- | --- |
-| Update | OS: staged automatically (`bootc-fetch-apply-updates.timer`, stage-only — never reboots) and by `topgrade`; it applies at the next reboot **you** choose. Apps/boxes/brew: `topgrade` when nothing long is running. `bootc status` shows what is staged. |
-| Roll back | `sudo bootc rollback && systemctl reboot`, or pick the previous GRUB entry |
-| Add a GUI app | `default-flatpaks` in `recipes/common-modules.yml` (or `flatpak install` now, declare later) |
-| Add a CLI tool | `~/.Brewfile` in the dotfiles → `brew bundle --global` |
-| Add a toolchain / IDE | `files/distrobox/distrobox.ini` → image → `distrobox assemble create --file /usr/share/distrobox/distrobox.ini --name dev --replace` |
-| Add something that needs the kernel/systemd | `recipes/common-modules.yml` (or one recipe) → push → CI builds |
-| Change a dotfile | `chezmoi edit …` → `chezmoi apply` → commit/push; `chezmoi update` on the other machine |
-| Fedora 44 → 45 | `image-version: 45` in both recipes → test on the test drive → push (`local-build.md`) |
-| Backup | `/run/media/$USER/DAS/frmwrk_backup_command.sh` (asks for sudo once) |
-| Health | `post-install-setup.sh --check`, `setup-cac.sh --check`, `sudo enable-hibernation.sh --check` |
+| See what happened overnight | The notification at login, or `nightly` (alias: the job's report and log). Failures are listed first; the restore point line says how old the newest backup is |
+| Apply an update | The nightly job only **stages** the image (`bootc status` shows it). Reboot when nothing long is running; nothing reboots on its own |
+| Update by hand | `up` (topgrade: staged image, flatpaks, Homebrew, boxes) |
+| Roll back | Previous or pinned entry in GRUB, or `sudo bootc rollback && systemctl reboot` |
+| Get a file back | `docs/restore.md` (hourly snapshots, DAS, B2) |
 | Something broke | `cosmic-report "<what you were doing>"`; a bug → GitHub issue with `cosmic-report --public` (`known-issues.md`) |
-| New / dead drive | `install-to-disk.sh` (`disaster-recovery.md`) |
+
+## Changing the system
+
+Every change starts as a row in `docs/end-state.md`; then:
+
+| To add | Where |
+| --- | --- |
+| A GUI app | `default-flatpaks` in `recipes/common-modules.yml` **and** `files/share/flatpaks.list` (the smoke test compares them) |
+| A CLI tool | `~/.Brewfile` in the dotfiles → `chezmoi apply` (installs it) |
+| A toolchain, IDE or distro package | `~/.config/distrobox/distrobox.ini` in the dotfiles → `chezmoi apply`; rebuild a box: `distrobox assemble create --file ~/.config/distrobox/distrobox.ini --name dev --replace` |
+| Something that needs the kernel, a host service, or root at night | `recipes/` → pull request → CI builds and smoke-tests it → merge → the nightly build publishes it |
+| A dotfile | `chezmoi edit …` → `chezmoi apply` → commit, push; `chezmoi update` on the other machine |
+| Fedora 44 → 45 | `docs/local-build.md` |
+
+Anything changed by hand outside these shows up in the next drift report.
 
 ## Tools shipped in the image
 
 | Path | Purpose |
 | --- | --- |
-| `/usr/bin/post-install-setup.sh` | Root half of a rebuild: DAS, allowlist restore, hibernation, CAC trust, VM, `chezmoi init --apply`, Tailscale. `--list`, `--check`, `--step N`. |
-| `/usr/bin/install-to-disk.sh` | Check a disk, then prepare + install (`disaster-recovery.md`). Building blocks: `prepare-disk.sh`, `make-target-env.sh`, `install-atomic.sh`. All read `/etc/fedora-cosmic-atomic/site.env`. |
-| `/usr/bin/setup-cac.sh` | DoD PKI (downloaded, verified against pinned roots) + OpenSC: pcscd, system trust, NSS/browser profiles. `--system`, `--user`, `--check`, `--fetch`, `--refresh`. |
-| `/usr/bin/win11-cac` | Hand the USB CAC reader to the Windows VM and back (`attach` / `detach` / `status`). |
-| `/usr/bin/enable-hibernation.sh` | Verify/repair resume + LUKS kargs, swap, SELinux module. `--check`. |
-| `/usr/bin/enable-vfio.sh` | Desktop: bind one NVMe controller to vfio-pci by PCI address. |
-| `/usr/bin/cosmic-report` | State snapshot for the journal or an issue; `--public` redacts user/host/UUIDs/tailnet. |
-| `/usr/bin/cosmic-session-wait` | Session start (`cosmic.desktop` Exec): waits up to 10 s for the greeter to release the GPU, then `start-cosmic`. Workaround for the login black screen (`known-issues.md`). `journalctl -t cosmic-session-wait` shows each wait. |
-| `/usr/bin/migrate-docker-to-podman.sh` | One-time: Open WebUI / SearXNG from Docker to rootless podman. |
-| `/usr/share/distrobox/distrobox.ini` | `distrobox assemble` manifest: `dev` (Fedora; VS Code/Antigravity exported), `claude` (Ubuntu), `rocm`. |
+| `/usr/bin/cosmic-nightly` | The one scheduled job (04:30 + hourly catch-up): manifest, hourly home snapshots, backups to the DAS and B2, drift report, staged upgrades (image, flatpaks, Homebrew, boxes), report. Never reboots. `--dry-run`, `--catch-up` |
+| `/usr/bin/cosmic-nightly-notify` | Shows the report once at login |
+| `/usr/bin/cosmic-acceptance` | Spec section 6, automatic part; `--user` for the user layer |
+| `/usr/bin/cac-status` | CAC on the host: pcscd, OpenSC, DoD roots, readers |
+| `/usr/bin/win11-cac` | Fallback: hand the CAC reader to the Win11 VM host-side and back (`attach` / `detach` / `status`); the daily path is SPICE redirection in the VM window |
+| `/usr/bin/enable-hibernation.sh` | Check/repair resume and LUKS kargs, swap, SELinux module. `--check` |
+| `/usr/bin/cosmic-report` | State snapshot for the journal or an issue; `--public` redacts |
+| `/usr/bin/cosmic-session-wait` | Session start: waits for the greeter to release the GPU (`known-issues.md`) |
+| `/usr/bin/enable-vfio.sh` | Desktop only: bind one NVMe controller to vfio-pci |
 
 ## Design decisions
 
-- **GRUB, not systemd-boot** — both systemd-boot attempts gave an unbootable disk with a separate ext4 `/boot` (`bootloader.md`).
-- **`bootc install to-filesystem` onto a prepared LUKS layout**, not Anaconda — reproducible, minutes, keeps containers and passphrases; Anaconda stays documented in `migration-guide.md`.
-- **Nothing under `/usr/local`, `/opt`, `/home` in the image** — those live in `/var` and are not updated after the first install.
-- **Modular libvirt** (`virtqemud.socket` &c.), not `libvirtd.service` — they conflict.
-- **Clean-room, not port-over** — data restored by allowlist, config declared in chezmoi, apps re-chosen per lane (`clean-room.md`).
-- **Personal values only in `site.env`** (gitignored) — the repo and the image are public; `scripts/check-leaks.sh` guards it.
-- **CI builds nightly only when something changed**; the smoke test gates every push; local builds use the same scripts (`local-build.md`).
-- **Desktop deferred** — `recipe-dsktp.yml` builds; the desktop migrates after the laptop has held up for months.
-- **VFIO by PCI address** — `vfio-pci.ids=` would also capture the desktop's boot NVMe (same model).
+The spec (`docs/end-state.md`) records every decision with its reason; the ones people ask about:
+
+- **Custom image, stock base** (F4, F9): CI catches failures before the laptop does; only what needs the host is layered.
+- **Homebrew for CLI, distrobox for toolchains and GUI dev apps, flatpak for GUI apps** — Universal Blue's lanes.
+- **The whole virtualization stack layered** (V1, A14): SPICE USB redirection of the CAC reader is used daily.
+- **One nightly job, never a reboot** (J1, L2): long sessions are never interrupted.
+- **Two different backups** (F8): plain files on the DAS, encrypted restic on B2; a restore point within a day (R1).
+- **GRUB, not systemd-boot** (`bootloader.md`); **modular libvirt sockets**, not `libvirtd.service`.
+- **Personal values only in `site.env`** (gitignored): the repo and image are public; `scripts/check-leaks.sh` guards it.

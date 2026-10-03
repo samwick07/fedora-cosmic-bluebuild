@@ -16,10 +16,15 @@ moves here when it is a lasting limitation rather than something to fix.
   the greeter's compositor and logind session are gone. Untested on hardware until the next image is booted.
   If it still goes black: Ctrl+Alt+F3 (NOT Ctrl+Alt+Del, which reboots), log in, `sudo systemctl restart
   cosmic-greeter`. Remove the workaround once upstream fixes it (candidate: cosmic-comp PR #2670).
-- **First real restore.** `post-install-setup.sh` restores home paths into `/var/home` (restoring
-  through the `/home` symlink on the read-only root makes restic exit 1 on `lchown`, reproduced in a
-  container) and only from host `SITE_HOSTNAME`'s newest snapshot. Tested in containers; the first
-  real run is Phase 4 on the test drive.
+- **Hibernation after suspend on the Framework 13 AMD.** Some owners reported lock-ups when
+  suspend-then-hibernate moves from suspend to hibernate (kernels 6.9–6.14,
+  [Framework forum](https://community.frame.work/t/responded-fw-13-amd-lockup-on-hibernate-only-after-suspend-battery-drains-on-suspend-then-hibernate/53860)).
+  Acceptance P2 runs 10 cycles on the 2TB. Upstream work to allow encrypted hibernation with
+  Secure Boot on is under review (2026); F2 keeps Secure Boot off until it lands.
+- **SPICE USB redirection of the CAC reader** (V2, daily path). While the reader is
+  redirected the host loses it; Chrome and Firefox on the host see no card until it is
+  given back. If redirection fails because host pcscd holds the reader, `win11-cac attach`
+  stops pcscd first (fallback).
 - **CAC in Chrome (dev distrobox).** Chrome is the RPM in the `dev` box. Tested on the
   Workstation (2026-10-02, throwaway box, no reader attached): the box reaches the host's
   pcscd through the /run/pcscd symlink (SCardEstablishContext ok; without the symlink
@@ -27,8 +32,10 @@ moves here when it is a lasting limitation rather than something to fix.
   Chrome's renderers run in their own user/pid namespaces with seccomp. Untested: a real
   card + PIN + a CAC login site. pcsc-lite in the box (fedora:44) and on the host must speak
   the same protocol; both are Fedora 44 today.
-- **Rechunking / zstd.** Not enabled: per-update download size not measured yet
-  (`--build-chunked-oci` is a CI dispatch option); zstd untested with `bootc upgrade`.
+- **Rechunking / zstd.** Not enabled: per-update download size not measured yet (spec L6;
+  `--build-chunked-oci` is a CI dispatch option); zstd untested with `bootc upgrade`.
+- **Homebrew inside boxes is read-only.** `dev` and `claude` mount `/home/linuxbrew`
+  read-only (distrobox mounts only `$HOME`); `brew install` works on the host only.
 - **Desktop image (`recipe-dsktp.yml`).** Builds and validates; never installed.
 
 ## Lasting caveats (worked around)
@@ -40,19 +47,13 @@ moves here when it is a lasting limitation rather than something to fix.
   build` drops `--registry` before generating the Containerfile.
   `fix-signing-registry.sh` rewrites the policy; CI builds are unaffected.
 - **DoD PKI bundle is signed with SHA-1**, which Fedora's OpenSSL refuses.
-  `setup-cac.sh` allows SHA-1 for that one verification only; the root is pinned.
-- **The base image has no `openssl` CLI** (only the libraries); the recipe adds it.
+  `install-dod-roots.sh` allows SHA-1 for that one verification only; the root is pinned.
+- **The base image has no `openssl` CLI** (only the libraries); `install-dod-roots.sh`
+  installs it for its build step and removes it again (F9).
 - **Hibernation needs Secure Boot off** (kernel lockdown blocks resume from an
   unsigned image). See `docs/hibernation-setup.md`.
 - **`podman pull` of `:latest` replaces the local manifest list** with a plain
   image; before a local `--push`: `podman manifest exists … || podman untag …`.
-- **bootupd rewrites the firmware's boot entries.** With `--update-firmware`, which `bootc install`
-  passes, it deletes every NVRAM entry labelled "Fedora" — including the running system's — and
-  creates one for the target (install runs 4 and 5). bootc 1.16 runs it inside the new deployment,
-  so stubbing `efibootmgr` in the container did not help. `install-atomic.sh` now installs with
-  `--bootloader none`, runs `bootupctl backend install --component EFI` itself without
-  `--update-firmware`, mounts `/sys/firmware/efi/efivars` read-only in both containers (refusing to
-  start otherwise) and stops if the entries differ afterwards. The target boots through its ESP
-  fallback (`EFI/BOOT/BOOTX64.EFI` → `fbx64.efi` creates the entry on first boot) or once via F12.
-- **`install-atomic.sh` needs a disk prepared by `prepare-disk.sh` or Anaconda**
-  (ESP, ext4 /boot, LUKS swap, LUKS root). It never repartitions.
+- **Retired with the custom installer (2026-10-03):** the bootupd/NVRAM and prepared-disk
+  caveats of `install-atomic.sh`. The stock installer (spec L1) does not have them; the
+  history is in git and the private journal.
