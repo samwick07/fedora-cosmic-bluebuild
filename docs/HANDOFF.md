@@ -3,7 +3,7 @@
 Read this first in every session, then `docs/end-state.md`. Keep it short: where things
 stand and the exact next step. No personal values here (write `$SITE_USER`).
 
-Last updated: 2026-10-03 16:15 EDT
+Last updated: 2026-10-03 17:00 EDT
 
 ## Where things stand
 - **Refactor in progress.** The first test install (2TB, 2026-10-02/03) showed that the
@@ -41,13 +41,17 @@ Last updated: 2026-10-03 16:15 EDT
   (it holds the private journal, lessons and migration checklist).
 
 ## Next (in order)
-1. Image PR per `docs/rebuild-plan.md` (recipes + files, smoke test); nightly CI builds it.
-2. Docs PR: `docs/install.md` (L1), retire the old guides, update CLAUDE.md/README.
-3. Dotfiles PR: externals, boxes (`dev`/`claude`/`rocm`/`vpn`), topgrade routine, backups.
+1. Image PR #7 (F9 package set, nightly job, CAC + DoD roots, old installer retired): its
+   CI build + smoke test runs on the PR; merge when green → the nightly build publishes it.
+2. Dotfiles PR: `distrobox.ini` (dev, claude, rocm, vpn), chezmoi externals, CAC for
+   Chrome in `dev`, topgrade (manual), retire Homebrew. Needed before the next install
+   (the image no longer ships `distrobox.ini`).
+3. Docs PR: `docs/install.md` (L1), retire the old guides, update CLAUDE.md/README.
 4. Workstation, read-only, before the laptop moves: MIGRATION W1 (Docker volumes), W2
-   (Cisco facts); W3 skipped while N6 is postponed.
-5. 2TB: install (stock ISO + `bootc switch`) → image checks → user layer → its checks
-   (incl. the VPN trial) → MIGRATION part B.
+   (Cisco facts).
+5. 2TB: install (stock ISO + `bootc switch`) → image checks (incl. `cac-status`, the
+   nightly job with `--dry-run`) → user layer → its checks (VPN trial, CAC in Chrome,
+   Firefox and the VM) → MIGRATION part B.
 
 ## Facts that are easy to forget
 - Restic: `/run/media/$SITE_USER/DAS/frmwrk-restic-repo`, password file

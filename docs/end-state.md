@@ -21,7 +21,7 @@ list to port.
 | F5 | Encrypted disk (LUKS2: root and swap) | Laptop leaves the house | One passphrase at boot and at resume. |
 | F6 | Test on the 2TB drive first; the 4TB Workstation is untouched until this spec's acceptance checks pass | The Workstation is the daily driver | Two installs of the same spec; the second must need no fixes. |
 | F8 | **Backups follow 3-2-1**: local copy as plain files on the DAS (later a NAS), off-site copy encrypted (block-level) in the cloud | Data safety without lock-in to one target | Two tools, one trigger: the daily update routine (S2). Targets are configuration, so a NAS can replace the DAS. |
-| F9 | **Base image as close to stock as possible.** An RPM is layered only when it needs the host kernel or a host service; configuration files are fine. Everything else is a flatpak, a distrobox, or a single binary in `$HOME` installed by the user layer | Fewer layered packages: smaller image, fewer update conflicts, closer to what Fedora tests | Layered: the libvirt/QEMU/swtpm stack (V1), Tailscale (N3) and, during the VPN trial, NetworkManager-openconnect (N4). Not layered: Homebrew, Ghostty, starship, topgrade, chezmoi, distrobox, Syncthing, restic, `openssl`, other NetworkManager VPN plugins. |
+| F9 | **Base image as close to stock as possible.** An RPM is layered only when it needs the host kernel or a host service, or when the root nightly job (J1) runs it (root must never execute files the user can write); configuration files are fine. Everything else is a flatpak, a distrobox, or a single binary in `$HOME` installed by the user layer | Fewer layered packages: smaller image, fewer update conflicts, closer to what Fedora tests | Layered: the libvirt/QEMU/swtpm stack (V1), Tailscale (N3), restic and distrobox (J1), the CAC stack pcsc-lite/CCID/OpenSC (V3, already in the base) and, during the VPN trial, NetworkManager-openconnect (N4). Not layered: Homebrew, Ghostty, starship, topgrade, chezmoi, Syncthing, `openssl`, other NetworkManager VPN plugins. |
 | F7 | Names: images `fedora-cosmic-frmwrk` / `-dsktp`; hosts `frmwrk` / `dsktp` | "cosmic-desktop" reads as the DE | The desktop (dsktp) is out of scope until the laptop has run 3–6 months. |
 
 ## 2. How to read the requirement tables
@@ -129,7 +129,8 @@ btop (47), lazydocker (30), git, nmap, ssh, fastfetch, gh, curl.
 
 | ID | Tools | Lane | State |
 | --- | --- | --- | --- |
-| C1 | chezmoi, starship, topgrade, gh, btop, fastfetch, restic, syncthing, distrobox, uv | user (single binaries via chezmoi externals / `uv`) | confirmed |
+| C1 | chezmoi, starship, topgrade, gh, btop, fastfetch, syncthing, uv | user (single binaries via chezmoi externals / `uv`) | confirmed |
+| C1a | restic, distrobox | image (run as root by J1; the user uses the same copies) | confirmed |
 | C1b | git | base image if present, else box:dev | confirmed |
 | C1c | nmap, 7zip, ddcutil | box:dev | confirmed |
 | C2 | lazydocker (against the user podman socket), cosign | user | confirmed |
@@ -155,7 +156,7 @@ btop (47), lazydocker (30), git, nmap, ssh, fastfetch, gh, curl.
 | --- | --- | --- | --- | --- | --- | --- |
 | V1 | Win11 VM (virtio, Secure Boot + TPM in the guest), same disk as today | image (libvirt stack; F9 exception) + migration (M7) | week-1 | the old Windows dev-eval VM and the Fedora COSMIC test VM are dropped | confirmed | boots, no BitLocker prompt |
 | V2 | **CAC in the Win11 VM (must):** the reader is passed into the VM; the Windows app that needs the VM also needs the card | image (`win11-cac`, libvirt) | day-1 | the Windows app relies on CAC | confirmed | `sudo win11-cac attach` → `certutil -scinfo` lists the card → the Windows app signs in with the card → `detach` returns the reader to the host |
-| V3 | **CAC on the host (must), in two browsers:** (a) **Chrome in box:dev** — opensc in the box reaches the host's `pcscd` through the socket; DoD certs and the OpenSC module in `~/.pki/nssdb`, set up by the user layer with a timeout; (b) **Firefox (base)** — OpenSC loaded through a Firefox enterprise policy (`/etc/firefox/policies/policies.json`, `SecurityDevices`) shipped in the image; DoD roots from the system trust | image + box:dev + dotfiles | day-1 | user NSS db and a smart-card script in use today | confirmed | PIN prompt and successful login on a DoD site in Chrome **and** in Firefox |
+| V3 | **CAC on the host (must), in two browsers:** (a) **Chrome in box:dev** — opensc in the box reaches the host's `pcscd` through the socket; DoD certs and the OpenSC module in `~/.pki/nssdb`, set up by the user layer with a timeout; (b) **Firefox (base)** — OpenSC through p11-kit (Fedora's Firefox loads it), DoD roots from the system trust (V4). If the 2TB test shows OpenSC missing in Firefox, the image adds a Firefox enterprise policy (`SecurityDevices`); not shipped by default, to avoid the card appearing twice | image + box:dev + dotfiles | day-1 | user NSS db and a smart-card script in use today | confirmed | PIN prompt and successful login on a DoD site in Chrome **and** in Firefox; `cac-status` |
 | V4 | **DoD PKI roots baked into the image** at build time: the public DoD bundle is downloaded and verified against a pinned root in CI, the roots go into the system trust (`/usr/share/pki/ca-trust-source/anchors`); the nightly build keeps them current | image (build step) | day-1 | today: fetched at runtime by `setup-cac.sh --system` (needed network and the `openssl` CLI) | confirmed | `trust list` shows the DoD roots on a fresh install with no network |
 
 ### 3.9 Identity and secrets (how they reach a new machine)
@@ -246,3 +247,6 @@ Generated from the Check columns once the tables are confirmed.
   backup, drift report (O1, confirmed), staged upgrades; never reboots. CAC is a must in
   three places: Win11 VM (V2), Chrome in box:dev and base Firefox (V3); DoD roots baked
   into the image (V4).
+- 2026-10-03: restic and distrobox are layered after all (J1 runs them as root, and root
+  must never execute user-writable files); Firefox gets OpenSC through p11-kit, the
+  enterprise policy only if the test shows it missing. Implementation: PR #7.

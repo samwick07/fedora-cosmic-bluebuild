@@ -11,7 +11,7 @@ user layer; nothing here is migration (that is `dotfiles/.migration-prep/MIGRATI
 
 | Path | Verdict | Why / what changes |
 | --- | --- | --- |
-| `recipes/common-modules.yml` | **change** | Packages per F9: libvirt/QEMU/swtpm/edk2 (V1), Tailscale (N3), NetworkManager-openconnect (N4 trial). Out: Ghostty/starship/topgrade COPRs, chezmoi, age, git, tmux, restic, Syncthing, distrobox, gdisk, smartmontools, lm_sensors, nss-tools, openssl, NetworkManager-openvpn, openvpn, openconnect CLI, policycoreutils-python-utils. Flatpak list per spec 3.5 (Collabora Office, Signal, VLC, Inkscape, GIMP, darktable, Calibre, Remmina, Bottles, Flatseal, virt-manager trial). |
+| `recipes/common-modules.yml` | **change** | Packages per F9: libvirt/QEMU/swtpm/edk2 (V1), Tailscale (N3), NetworkManager-openconnect (N4 trial), restic + distrobox (J1, run as root), pcsc-lite/CCID/OpenSC (V3). Out: Ghostty/starship/topgrade COPRs, chezmoi, age, git, tmux, Syncthing, gdisk, smartmontools, lm_sensors, nss-tools, openssl, NetworkManager-openvpn, openvpn, openconnect CLI, policycoreutils-python-utils. Flatpak list per spec 3.5 (Collabora Office, Signal, VLC, Inkscape, GIMP, darktable, Calibre, Remmina, Bottles, Flatseal, virt-manager trial). |
 | `recipes/recipe-frmwrk.yml` | **change** | Drop iio-sensor-proxy; fprintd/fprintd-pam only if the base lacks them (check on the stock install); keep hibernation, kargs, signing. |
 | `recipes/recipe-dsktp.yml` | keep | Out of scope until the laptop has run 3–6 months; aligned with F9 then. |
 | `files/scripts/configure-hibernation.sh`, `enable-hibernation.sh` | keep | F2/P2. `checkpolicy` becomes build-time only (compile the SELinux module, then remove it). |
@@ -23,11 +23,11 @@ user layer; nothing here is migration (that is `dotfiles/.migration-prep/MIGRATI
 | flatpak retry drop-ins (`held/first-run-fixes`) | **add** | N1. |
 | i2c udev rule + `i2c-dev` modules-load | **add** | P11 (config files only; `ddcutil` lives in `dev`). |
 | TPM2 dracut config | **add** | P9 (the initramfs can unlock LUKS with TPM2 + PIN). |
-| Firefox enterprise policy `/etc/firefox/policies/policies.json` | **add** | V3b: loads OpenSC as a security device in the base Firefox. |
-| nightly job: `/usr/bin/frmwrk-nightly` + `frmwrk-nightly.service`/`.timer` | **add** | J1: backup (S2a/S2b), drift report (O1), staged upgrades, report; never reboots. Generic; targets and keys come from a private `/etc/fedora-cosmic-atomic/nightly.env` written during migration. |
+| Firefox enterprise policy `/etc/firefox/policies/policies.json` | **only if needed** | V3b: Fedora's Firefox loads OpenSC through p11-kit; the policy is added only if the 2TB test shows it missing. |
+| nightly job: `/usr/bin/cosmic-nightly` + `cosmic-nightly.service`/`.timer` + login notifier | **add** | J1: backup (S2a/S2b), drift report (O1), staged upgrades, report; never reboots. Generic; targets and keys come from a private `/etc/fedora-cosmic-atomic/nightly.env` written during migration. |
 | `files/scripts/enable-vfio.sh`, `configure-amd-gpu-desktop.sh` | keep | dsktp only. |
 | `files/scripts/configure-amd-gpu-framework.sh`, `files/etc/environment.d/50-amd-common.conf`, `files/etc/profile.d/amd-common.sh` | **retire** | ROCm variables belong to the `rocm` box (E3), not the host session. |
-| `files/scripts/setup-cac.sh` | **change** | Split. The DoD bundle download + verification (pinned root) moves into the **build** (V4: roots into the image's system trust; `openssl` exists only in the build step). The host keeps `--check`. The Chrome part (NSS db in `~/.pki/nssdb`, OpenSC module, with a timeout) moves to the dotfiles (`run_once_40-cac`). |
+| `files/scripts/setup-cac.sh` | **split** | The DoD bundle download + verification moves into the build (`install-dod-roots.sh`, V4); `--check` becomes `cac-status`; the Chrome part (NSS db, OpenSC module, with a timeout) moves to the dotfiles (`run_once_40-cac`). |
 | `files/scripts/install-atomic.sh`, `install-to-disk.sh`, `make-target-env.sh`, `prepare-disk.sh` (+ the `scripts/` symlinks) | **retire** | L1: stock ISO + `bootc switch`. |
 | `files/scripts/post-install-setup.sh` | **retire** | Bring-up = image + user layer; one-time steps = MIGRATION.md. |
 | `files/scripts/migrate-docker-to-podman.sh` | **retire** | One-time (MIGRATION W1/M6). |
@@ -58,7 +58,7 @@ user layer; nothing here is migration (that is `dotfiles/.migration-prep/MIGRATI
 | Path | Verdict | Why / what changes |
 | --- | --- | --- |
 | `dot_Brewfile`, `run_once_before_10-homebrew.sh.tmpl`, `dot_config/environment.d/10-brew.conf` | **retire** | C3: no Homebrew. |
-| `.chezmoiexternal.toml` | **add** | C1/C2: single binaries into `~/.local/bin` (chezmoi, starship, topgrade, gh, btop, fastfetch, restic, syncthing, distrobox, uv, lazydocker, cosign). |
+| `.chezmoiexternal.toml` | **add** | C1/C2: single binaries into `~/.local/bin` (chezmoi, starship, topgrade, gh, btop, fastfetch, syncthing, uv, lazydocker, cosign). restic and distrobox come from the image (C1a). |
 | `run_once_20-distrobox.sh.tmpl` + `distrobox.ini` (moved here) | **change** | Boxes `dev` (Chrome, VS Code, Antigravity, Ghostty, toolchain, AI CLIs, nmap, 7zip, ddcutil, opensc), `claude` (Claude Desktop + Claude Code CLI, exported), `rocm` (ROCm env vars), `vpn` (rootful, systemd; Cisco Secure Client, Windscribe app). Runs as the user, no sudo except the rootful box. |
 | `run_once_25-claude-cli.sh.tmpl` | **retire** | Folded into the `claude` box definition. |
 | `run_once_30-flatpak-overrides.sh.tmpl` | **change** | Only what the confirmed flatpaks need (Bottles). |
