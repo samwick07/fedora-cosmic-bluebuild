@@ -10,5 +10,5 @@
 /?fedora-cosmic-atomic/(nightly\.env|.*\.pass)$
 /?(selinux/targeted/(active|contexts/files/file_contexts\.local)|lvm/)
 /?(cups/|tailscale/|fwupd/|containers/(storage\.conf|registries\.conf\.d/))
-/?systemd/system/(.*\.wants/)?(tailscaled|pcscd|virt.*|cosmic-nightly)\.
+/?systemd/system/(.*\.wants/)?(tailscaled|pcscd|virt.*|cosmic-nightly(-catchup)?)\.
 /?(xdg/autostart/cosmic-nightly-notify\.desktop|udev/hwdb\.bin)$
