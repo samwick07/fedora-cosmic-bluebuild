@@ -110,9 +110,18 @@ jobs:
         run: bluebuild build -v -B podman ${CHUNKED:+"$CHUNKED"} "$RECIPE"
 
       - name: Smoke test
+        env:
+          IMAGE: ${{ needs.check.outputs.image }}
         run: |
-          img=$(podman images --format '{{.Repository}}:{{.Tag}}' | grep -m1 -E "/${{ needs.check.outputs.image }}:latest_linux_amd64$|^${{ needs.check.outputs.image }}:latest_linux_amd64$" \
-                || podman images --format '{{.Repository}}:{{.Tag}}' | grep -m1 -E ":latest_linux_amd64$")
+          imgs=$(podman images --format '{{.Repository}}:{{.Tag}}')
+          name=${IMAGE##*/}
+          # The tag BlueBuild gives a build-only image has varied between versions:
+          # prefer latest_linux_amd64, else the newest tag of our image.
+          img=$(grep -m1 -E "(^|/)$name:latest_linux_amd64$" <<<"$imgs" || grep -m1 -E "(^|/)$name:" <<<"$imgs" || true)
+          if [[ -z "$img" ]]; then
+            echo "::error title=smoke test::no image named $name after the build. podman images: $(tr '\n' ' ' <<<"$imgs")"
+            exit 1
+          fi
           echo "smoke-testing $img"
           scripts/smoke-test.sh "$img"
 
