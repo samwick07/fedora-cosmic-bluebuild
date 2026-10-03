@@ -32,7 +32,7 @@ modules:
         # N3: Tailscale (host daemon, /dev/net/tun)
         - tailscale
         # N4: VPN trial — Cisco (AnyConnect protocol) from COSMIC's network menu.
-        #     Removed again if the trial picks the vendor client in the vpn box.
+        #     Removed again if the trial picks the vendor client in the net box.
         - NetworkManager-openconnect
         # J1: run by the root nightly job (never a user-writable binary under root)
         - restic

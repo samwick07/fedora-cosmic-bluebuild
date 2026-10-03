@@ -25,11 +25,13 @@ Last updated: 2026-10-03 (night)
 - **First seen on the 2TB:** the kickstart (`ostreecontainer` from the stock Atomic ISO,
   the passphrase prompt), the first-boot services, brew inside the boxes, btrfs snapshots
   and the bind-mounted restic run, the `net` box and its launchers, `migrate.sh`.
+- **One dotfiles repo for both machines** (F7), keyed by the machine name; frmwrk's
+  migration lives in `dotfiles/.migration-prep/frmwrk/`.
 - Private facts and rules: `dotfiles/.migration-prep/HANDOFF.md`.
 
 ## Next (in order)
 1. Merge #10 → #11 → #12 and dotfiles #3; confirm the nightly CI publishes and signs.
-2. Workstation: `migrate.sh export` (W1, W4, W5); W2 by you (Cisco facts, vendor `.deb`s
+2. Workstation: `.migration-prep/frmwrk/migrate.sh export` (W1, W4, W5); W2 by you (Cisco facts, vendor `.deb`s
    into `DAS/migration/net-box-installers/`).
 3. 2TB: `docs/install.md` (kickstart) → `sudo cosmic-acceptance` → user layer →
    `sudo cosmic-enroll` → `sudo cosmic-acceptance --user` → `migrate.sh all` → section 6
