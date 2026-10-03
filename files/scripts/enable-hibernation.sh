@@ -2,7 +2,7 @@
 # enable-hibernation.sh — HOST: verify or complete the per-installation half of
 # hibernation. Shipped at /usr/bin/enable-hibernation.sh.
 #
-# bootc path  (scripts/install-atomic.sh): resume=, rd.luks.uuid=, crypttab and
+# (retired bootc installer path): resume=, rd.luks.uuid=, crypttab and
 #             the swap fstab line are already written -> this script only checks.
 # Anaconda path: Anaconda writes crypttab/fstab and rd.luks.uuid but NOT resume=
 #             -> this script adds resume= via rpm-ostree kargs.
@@ -77,8 +77,8 @@ else
 fi
 
 # 5. systemd config + lockdown
-[[ -f /etc/systemd/sleep.conf.d/10-hibernate.conf ]] && ok "sleep.conf.d drop-in present" || bad "sleep.conf.d/10-hibernate.conf missing (image build issue)"
-[[ -f /etc/systemd/logind.conf.d/10-lid.conf ]]     && ok "logind.conf.d drop-in present"  || bad "logind.conf.d/10-lid.conf missing (image build issue)"
+[[ -f /usr/lib/systemd/sleep.conf.d/10-hibernate.conf || -f /etc/systemd/sleep.conf.d/10-hibernate.conf ]] && ok "sleep.conf.d drop-in present" || bad "sleep.conf.d/10-hibernate.conf missing (image build issue)"
+[[ -f /usr/lib/systemd/logind.conf.d/10-lid.conf || -f /etc/systemd/logind.conf.d/10-lid.conf ]] && ok "logind.conf.d drop-in present"  || bad "logind.conf.d/10-lid.conf missing (image build issue)"
 if [[ -r /sys/kernel/security/lockdown ]] && grep -q '\[integrity\]\|\[confidentiality\]' /sys/kernel/security/lockdown; then
     bad "kernel lockdown active (Secure Boot ON) — hibernation is blocked. Disable Secure Boot in firmware."
 else
