@@ -59,8 +59,8 @@ sudo cosmic-acceptance --user
 
 ## 5. Migration, then acceptance
 
-The one-time steps are private: `dotfiles/.migration-prep/MIGRATION.md`, part B, mostly run
-by its script. When every check of spec section 6 passes:
+The one-time steps are private: `dotfiles/.migration-prep/frmwrk/MIGRATION.md`, part B, run
+by `migrate.sh` beside it. When every check of spec section 6 passes:
 
 ```bash
 sudo cosmic-acceptance --pin             # pins this deployment as known-good (L3)

@@ -1,5 +1,8 @@
 # fedora-cosmic-bluebuild — project context for Claude
 
+Machine names are the key everywhere (spec F7): `frmwrk`/`dsktp` = hostname = recipe =
+image `fedora-cosmic-<name>` = `VARIANT_ID` = the dotfiles' `.machine`.
+
 Migrating the Framework 13 AMD laptop **frmwrk** (login `$SITE_USER`, uid 1000) from
 Fedora 44 Workstation to **Fedora 44 COSMIC Atomic**, built here with BlueBuild and
 installed with bootc. Clean-room approach: keep the data, re-declare everything else.
@@ -45,8 +48,8 @@ hibernation (F2) are hard requirements.
 | Spec | `docs/end-state.md` | every requirement, its lane, its check; section 6 = acceptance |
 | Image (system) | this repo: `recipes/`, `files/` | stock COSMIC Atomic + the F9 set (virtualization stack, Tailscale, restic, distrobox, CAC), Homebrew (module), nightly job J1, first-boot services, the rootful `net` box, `cosmic-acceptance`, `cosmic-enroll`; `VARIANT_ID=frmwrk` / `dsktp` |
 | Install | `install/frmwrk.ks` + `docs/install.md` | stock ISO + kickstart (partitioning, image); first boot finishes alone (L1) |
-| User | `github.com/samwick07/dotfiles` (chezmoi, private) | `~/.Brewfile` (CLI), `distrobox.ini` (rootless dev, claude, rocm), shell, CAC for Chrome, Syncthing unit |
-| Migration (one-time) | dotfiles `.migration-prep/MIGRATION.md` (private) | W1–W6 on the Workstation, M1–M12 on the laptop |
+| User | `github.com/samwick07/dotfiles` (chezmoi, private; one repo for both machines) | `~/.Brewfile` (CLI), `distrobox.ini` (rootless dev, claude, rocm), shell, CAC for Chrome, Syncthing unit; per-machine values in `.chezmoidata/machines.yaml` |
+| Migration (one-time) | dotfiles `.migration-prep/<machine>/` (private): `MIGRATION.md`, `migrate.sh`, `site.env` | frmwrk: W1–W6 on the Workstation, M1–M12 on the laptop |
 | Backup / restore | J1 in the image; `docs/restore.md` | daily home snapshot, DAS rsync snapshots, restic to B2; `$HOME`, `/etc`, `/var` state, VM disks, manifest (R1); weekly warm spare (L4) |
 
 App lanes: GUI → flatpak · CLI → Homebrew (`~/.Brewfile`) · toolchains, IDEs, Chrome (CAC),
