@@ -17,11 +17,11 @@ list to port.
 | F1 | **COSMIC** is the desktop | It is what is being evaluated as the GNOME replacement | Its bugs are ours to work around (login black screen, cosmic-comp#2690: `cosmic-session-wait`). GNOME-specific tools and extensions do not carry over. |
 | F2 | **Hibernation** is required | Without it the battery dies in the bag within 3–4 hours | Secure Boot **off** (kernel lockdown blocks hibernation). LUKS2 swap **partition** ≥ RAM (60 GB → 96 GB), `rd.luks.uuid` + `resume=` kargs, SELinux `systemd_hibernate` module, lid → suspend-then-hibernate after 5 min. Disk layout and install path must provide this. |
 | F3 | Hardware: Framework 13, Ryzen 7040 (780M iGPU), 60 GB RAM | — | AMD-only; no NVIDIA. ROCm needs `HSA_OVERRIDE_GFX_VERSION=11.0.0` if wanted at all. |
-| F4 | Fedora 44 Atomic, custom image built with BlueBuild, signed, on public GHCR. **Nightly build in GitHub Actions** (free for public repositories); local builds to test a change before pushing | Reproducible system, rebuilt daily on the newest base | Nothing personal in the image or this repo (`check-leaks.sh`); personal values in `site.env` and the private dotfiles repo. The signing key lives in the repo's Actions secrets. |
+| F4 | Fedora 44 Atomic, **custom image** built with BlueBuild, signed, on public GHCR. **Nightly build in GitHub Actions** (free for public repositories); local builds to test a change before pushing | Reproducible system, rebuilt daily on the newest base; failures happen in CI, not on the laptop; laptop and dsktp get the same declared system; `/usr` changes (login workaround, DoD roots) need an image | Nothing personal in the image or this repo (`check-leaks.sh`); personal values in `site.env`, private `/etc` files and the private dotfiles repo. The signing key lives in the repo's Actions secrets. **Revisit** (stock image + a few layered packages) only if the layered set shrinks to libvirt + Tailscale **and** upstream COSMIC fixes the login bug. |
 | F5 | Encrypted disk (LUKS2: root and swap) | Laptop leaves the house | One passphrase at boot and at resume. |
 | F6 | Test on the 2TB drive first; the 4TB Workstation is untouched until this spec's acceptance checks pass | The Workstation is the daily driver | Two installs of the same spec; the second must need no fixes. |
 | F8 | **Backups follow 3-2-1**: local copy as plain files on the DAS (later a NAS), off-site copy encrypted (block-level) in the cloud | Data safety without lock-in to one target | Two tools, one trigger: the daily update routine (S2). Targets are configuration, so a NAS can replace the DAS. |
-| F9 | **Base image as close to stock as possible.** An RPM is layered only when it needs the host kernel or a host service; configuration files are fine. Everything else is a flatpak, a distrobox, or a single binary in `$HOME` installed by the user layer | Fewer layered packages: smaller image, fewer update conflicts, closer to what Fedora tests | Layered: the libvirt/QEMU/swtpm stack (V1) and Tailscale (N3). Not layered: Homebrew, Ghostty, starship, topgrade, chezmoi, distrobox, Syncthing, restic, NetworkManager VPN plugins, `openssl`. |
+| F9 | **Base image as close to stock as possible.** An RPM is layered only when it needs the host kernel or a host service, or when the root nightly job (J1) runs it (root must never execute files the user can write); configuration files are fine. Everything else is a flatpak, a distrobox, or a single binary in `$HOME` installed by the user layer | Fewer layered packages: smaller image, fewer update conflicts, closer to what Fedora tests | Layered: the libvirt/QEMU/swtpm stack (V1), Tailscale (N3), restic and distrobox (J1), the CAC stack pcsc-lite/CCID/OpenSC (V3, already in the base) and, during the VPN trial, NetworkManager-openconnect (N4). Not layered: Homebrew, Ghostty, starship, topgrade, chezmoi, Syncthing, `openssl`, other NetworkManager VPN plugins. |
 | F7 | Names: images `fedora-cosmic-frmwrk` / `-dsktp`; hosts `frmwrk` / `dsktp` | "cosmic-desktop" reads as the DE | The desktop (dsktp) is out of scope until the laptop has run 3–6 months. |
 
 ## 2. How to read the requirement tables
@@ -69,7 +69,7 @@ list to port.
 | D2 | Terminal: **Ghostty in box:dev** (COPR inside the box, exported to the menu; opens a shell in `dev`, where daily work happens). COSMIC Terminal (stock) for host administration | box:dev | day-1 | Ghostty autostarted daily; no official flatpak | confirmed | Ghostty opens from the launcher into `dev`; COSMIC Terminal opens a host shell |
 | D3 | bash + starship prompt | user + dotfiles | day-1 | starship in use | confirmed | prompt renders on the host and in boxes |
 | D4 | tmux | — | — | not in shell history | drop | — |
-| D5 | topgrade: the daily update routine (backup, image, flatpaks, boxes) | user + dotfiles | week-1 | 57 uses | confirmed | one command updates everything after the backup |
+| D5 | topgrade for a manual update run (the nightly job J1 does the scheduled one) | user + dotfiles | later | 57 uses | confirmed | `topgrade` updates image (staged), flatpaks, boxes |
 | D6 | Default browser: Google Chrome (box:dev); Firefox (base) as fallback | A2 | day-1 | Chrome is the https/html handler | confirmed | links open in Chrome |
 | D7 | Window tiling | COSMIC built-in | day-1 | GNOME Tactile extension | confirmed | tile shortcuts work |
 | D8 | PDF viewer: Chrome's built-in viewer; a flatpak only if annotation is missed | A2 | day-1 | Evince is the PDF handler | confirmed | a PDF opens |
@@ -82,19 +82,19 @@ list to port.
 | N1 | Network at first boot, or every first-boot job retries | image (retry drop-ins) | day-1 | first test install failed here | confirmed | flatpaks install without manual action |
 | N2 | Wi-Fi profiles migrate (~20 saved networks) | migration (M1) | day-1 | many saved profiles | confirmed | known networks connect |
 | N3 | Tailscale: this machine's own node | image (needs the host daemon; F9 exception) + manual | day-1 | in daily use | confirmed | `tailscale status` |
-| N4 | Cisco VPN for work (AnyConnect) | **box:vpn**: rootful distrobox (Ubuntu 24.04 with systemd for the vendor services) running Cisco Secure Client, its window/tray icon exported to the host. Distroboxes share the host network, so the tunnel's routes reach the host, `dev` (Chrome, Ghostty), `claude` and podman containers (Hermes). Not in COSMIC's network menu: that menu only drives NetworkManager connections, and a Cisco one would need a layered plugin (F9). Fallback only if posture or DNS fails: NetworkManager-openconnect, as an explicit F9 exception | week-1 | Cisco Secure Client installed, service enabled, autostarts | confirmed | connects from the box; the posture check (if the server runs one) passes; routes and DNS (N6) work from the host, `dev` and a podman container |
-| N6 | Work-internal names, including a `.local` hostname, resolve on the host, in every box and in podman containers while the Cisco VPN is up. `.local` is multicast DNS by default on Fedora, so it must be routed to the VPN's DNS explicitly: a host unit (image, generic) runs when the VPN interface appears and sets its DNS servers and routing domains with `resolvectl`, reading the values from a private file in `/etc` written during migration (never in the image). Fallback: `/etc/hosts` entries (private) | image (generic unit) + migration | week-1 | the Workstation resolves it today; how is recorded first (migration W3) | confirmed | `getent hosts` of the internal names on the host, in `dev` and in a podman container |
-| N5 | Windscribe: WireGuard profiles in NetworkManager (built in, no plugin), so they appear in **COSMIC's network menu**; the Windscribe app in box:vpn for its extras | NetworkManager config + box:vpn | later | installed, helper service enabled | confirmed | connects from the network menu; no DNS leak |
+| N4 | Cisco VPN for work (AnyConnect) — **trial of two methods, keep the one that works and suits the workflow**: (a) **NetworkManager-openconnect** layered (F9 exception for the trial), connected from COSMIC's network menu or `nmcli --ask connection up`; (b) **Cisco Secure Client in box:vpn**, a rootful distrobox (Ubuntu 24.04 with systemd), its window/tray icon exported. Boxes share the host network, so either way the tunnel reaches the host, `dev`, `claude` and podman containers. The method not chosen leaves the image or the box | image (trial) + box:vpn | week-1 | Cisco Secure Client installed, service enabled, autostarts | trial | per method: connects; the posture check (if the server runs one) passes; routes and DNS work from the host, `dev` (Chrome, Ghostty) and a podman container (Hermes); COSMIC's menu shows state (a) and can log in, incl. SSO if used |
+| N6 | Work-internal names over the VPN, including a `.local` one | — | — | the `.local` name moves to a real domain soon (work IT) | postponed: revisit only if the move does not happen | — |
+| N5 | Windscribe: **native WireGuard profiles in NetworkManager** (built in, no plugin; in COSMIC's network menu) **and** the Windscribe app in box:vpn — both kept for the trial; decide after use | NetworkManager config + box:vpn | later | installed, helper service enabled | trial | connects both ways; no DNS leak |
 
 ### 3.4 Data, sync, backup
 
 | ID | Need | Lane | When | Evidence | State | Check |
 | --- | --- | --- | --- | --- | --- | --- |
 | S1 | Syncthing with dsktp: Documents, Music, Pictures, Videos, Downloads, Desktop, Public, Templates, Applications, VMs, Sync | user (binary) + dotfiles (user unit) | day-1 | 11 folders; started from an autostart entry today; one malformed folder entry (empty id, path `~`) to fix | confirmed | folders Up to Date |
-| S2a | Local backup to the DAS as **plain files**: `rsync --link-dest` hard-link snapshots (unchanged files cost no space; restore = copy from a dated folder). Keep 7 daily, 4 weekly, 12 monthly. VM disk images are copied separately, only when changed and the VM is off, last 2 kept | dotfiles (script + config) | week-1 | today: restic to the DAS, run by hand | confirmed | a file from yesterday's snapshot opens directly from the DAS |
-| S2b | Off-site: **restic to Backblaze B2**, encrypted on the laptop before upload; same retention. The laptop's B2 key cannot delete; the bucket keeps hidden versions 30 days; `forget --prune` only with a separate admin key; monthly `restic check --read-data-subset=5%` | dotfiles (script + config) | week-1 | none today (an off-site design from 2026-10-01 was postponed until now) | confirmed | `restic snapshots` lists today's; a test restore works |
-| S2c | Trigger: the daily update routine runs the backup first, then updates (topgrade custom step); a timer catches days without the routine | dotfiles (topgrade config + user timer) | week-1 | the backup is tied to the daily update habit | confirmed | backup log shows a run within the last 26 h |
-| S2d | Scope: all of `$HOME` (dotfiles and Downloads included; minus `~/.cache`, Trash and container image layers — container **volumes** are included); `/etc/libvirt` (domain and network XML) and `/var/lib/libvirt` (disks, NVRAM, swtpm). Targets are configuration (DAS → NAS later). The old restic repo on the DAS stays read-only for the migration | dotfiles | week-1 | home ≈ 750 GB + VM disks | confirmed | a VM restores from backup and boots |
+| S2a | Local backup to the DAS as **plain files**: `rsync --link-dest` hard-link snapshots (unchanged files cost no space; restore = copy from a dated folder). Keep 7 daily, 4 weekly, 12 monthly. VM disk images are copied separately, only when changed and the VM is off, last 2 kept. Skipped (and reported) when the DAS is not attached | image (J1) + private config | week-1 | today: restic to the DAS, run by hand | confirmed | a file from yesterday's snapshot opens directly from the DAS |
+| S2b | Off-site: **restic to Backblaze B2**, encrypted on the laptop before upload; same retention. The laptop's B2 key cannot delete; the bucket keeps hidden versions 30 days; `forget --prune` only with a separate admin key; monthly `restic check --read-data-subset=5%` | image (J1) + private config | week-1 | none today (an off-site design from 2026-10-01 was postponed until now) | confirmed | `restic snapshots` lists today's; a test restore works |
+| S2c | Trigger: the nightly job (J1) | image (J1) | week-1 | — | confirmed | J1's report shows a backup within the last 26 h |
+| S2d | Scope: all of `$HOME` (dotfiles and Downloads included; minus `~/.cache`, Trash and container image layers — container **volumes** are included); `/etc/libvirt` (domain and network XML) and `/var/lib/libvirt` (disks, NVRAM, swtpm). Targets are configuration in a private `/etc` file (DAS → NAS later; B2 bucket and keys). The old restic repo on the DAS stays read-only for the migration | image (J1) + private config | week-1 | home ≈ 750 GB + VM disks | confirmed | a VM restores from backup and boots |
 | S3 | Data outside Syncthing to carry over: `~/.ssh`, `~/.gnupg`, `~/.hermes`, `~/.claude*`, app configs as needed (not `~/.config` or `~/.local` wholesale) | migration (M5) | day-1 | `~/.config` 27 GB, `~/.local` 77 GB | confirmed | migration checklist |
 
 ### 3.5 Applications (GUI)
@@ -129,7 +129,8 @@ btop (47), lazydocker (30), git, nmap, ssh, fastfetch, gh, curl.
 
 | ID | Tools | Lane | State |
 | --- | --- | --- | --- |
-| C1 | chezmoi, starship, topgrade, gh, btop, fastfetch, restic, syncthing, distrobox, uv | user (single binaries via chezmoi externals / `uv`) | confirmed |
+| C1 | chezmoi, starship, topgrade, gh, btop, fastfetch, syncthing, uv | user (single binaries via chezmoi externals / `uv`) | confirmed |
+| C1a | restic, distrobox | image (run as root by J1; the user uses the same copies) | confirmed |
 | C1b | git | base image if present, else box:dev | confirmed |
 | C1c | nmap, 7zip, ddcutil | box:dev | confirmed |
 | C2 | lazydocker (against the user podman socket), cosign | user | confirmed |
@@ -154,8 +155,9 @@ btop (47), lazydocker (30), git, nmap, ssh, fastfetch, gh, curl.
 | ID | Need | Lane | When | Evidence | State | Check |
 | --- | --- | --- | --- | --- | --- | --- |
 | V1 | Win11 VM (virtio, Secure Boot + TPM in the guest), same disk as today | image (libvirt stack; F9 exception) + migration (M7) | week-1 | the old Windows dev-eval VM and the Fedora COSMIC test VM are dropped | confirmed | boots, no BitLocker prompt |
-| V2 | CAC reader passed into the Win11 VM | image (`win11-cac`) | week-1 | — | confirmed | `certutil -scinfo` in Windows |
-| V3 | CAC on the host, in Chrome | base (`pcscd`) + box:dev (opensc, NSS db) | week-1 | user NSS db exists; a smart-card script in use | confirmed | PIN prompt on a DoD site |
+| V2 | **CAC in the Win11 VM (must):** the reader is passed into the VM; the Windows app that needs the VM also needs the card | image (`win11-cac`, libvirt) | day-1 | the Windows app relies on CAC | confirmed | `sudo win11-cac attach` → `certutil -scinfo` lists the card → the Windows app signs in with the card → `detach` returns the reader to the host |
+| V3 | **CAC on the host (must), in two browsers:** (a) **Chrome in box:dev** — opensc in the box reaches the host's `pcscd` through the socket; DoD certs and the OpenSC module in `~/.pki/nssdb`, set up by the user layer with a timeout; (b) **Firefox (base)** — OpenSC through p11-kit (Fedora's Firefox loads it), DoD roots from the system trust (V4). If the 2TB test shows OpenSC missing in Firefox, the image adds a Firefox enterprise policy (`SecurityDevices`); not shipped by default, to avoid the card appearing twice | image + box:dev + dotfiles | day-1 | user NSS db and a smart-card script in use today | confirmed | PIN prompt and successful login on a DoD site in Chrome **and** in Firefox; `cac-status` |
+| V4 | **DoD PKI roots baked into the image** at build time: the public DoD bundle is downloaded and verified against a pinned root in CI, the roots go into the system trust (`/usr/share/pki/ca-trust-source/anchors`); the nightly build keeps them current | image (build step) | day-1 | today: fetched at runtime by `setup-cac.sh --system` (needed network and the `openssl` CLI) | confirmed | `trust list` shows the DoD roots on a fresh install with no network |
 
 ### 3.9 Identity and secrets (how they reach a new machine)
 
@@ -171,9 +173,10 @@ btop (47), lazydocker (30), git, nmap, ssh, fastfetch, gh, curl.
 | ID | Topic | Options | State |
 | --- | --- | --- | --- |
 | L1 | Install path | **Stock Fedora COSMIC Atomic ISO** (Anaconda), then `bootc switch` to the signed image. Anaconda custom partitioning: ESP, ext4 /boot, LUKS2 swap ≥ RAM, LUKS2 btrfs root, one passphrase. First `sudo bootc switch ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` (unverified), reboot, then `sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` (the signing policy ships in the image; `docs/local-build.md`). Then check kargs (`rd.luks.uuid` for swap, `resume=`); `enable-hibernation.sh` adds what is missing. Secure Boot off after install (F2). Retires `install-atomic.sh`, `prepare-disk.sh`, `make-target-env.sh`, `install-to-disk.sh`. | **confirmed** 2026-10-03 |
-| L2 | Updates: the daily routine (D5) runs the backup, then `bootc upgrade` to the nightly build; it applies at the next reboot. The stage-only timer stays as a backstop | user + image (drop-in exists) | confirmed |
+| L2 | Updates: the nightly job (J1) runs `bootc upgrade` without `--apply`: the new image is **staged** and applies at the next reboot you choose. **Nothing ever reboots the machine automatically.** J1 is the only updater (the old stage-only timer retires) | image (J1) | confirmed |
 | L3 | Rollback: previous deployment in the GRUB menu | built in | confirmed |
-| O1 | Daily drift report: what is on the machine that the spec and the dotfiles do not declare (layered packages, extra flatpaks, boxes, enabled units) | user (script in the daily routine) | later | design agreed in principle 2026-10-01, never built | proposed |
+| J1 | **One nightly job** (systemd timer, ~04:30, after the CI build; `Persistent=true` so a run missed during sleep or hibernation happens at the next wake; idle CPU/IO priority): **1** backup (S2a if the DAS is attached, S2b if online) → **2** drift report (O1) → **3** upgrades: `bootc upgrade` staged (never `--apply`, never reboots), flatpaks, distroboxes (incl. the rootful `vpn`), firmware metadata → **4** report: a desktop notification at the next login and a log, failures first. Runs as a system service; user-level steps run as the user. Each step runs even if an earlier one failed, and the report says which | image (script + timer) + private config | week-1 | today: backup and updates by hand | confirmed | after a night: the report lists backup, drift and upgrade results; `bootc status` shows a staged image; uptime unchanged |
+| O1 | Drift report: what is on the machine that the spec and the dotfiles do not declare — `/etc` changes against the image (`ostree admin config-diff`), packages layered by hand (`rpm-ostree status`), flatpaks outside the list, boxes and their packages vs. their definitions, `chezmoi status`, enabled units. Prints only differences | image (J1 step 2) | week-1 | design agreed in principle 2026-10-01 | confirmed | a hand-made change (e.g. an `/etc` edit) appears in the next report |
 | L4 | Rescue: the 2TB test drive, after the test, as a bootable spare | — | confirmed |
 
 ## 5. How the end state is reached (bring-up model)
@@ -211,11 +214,8 @@ Generated from the Check columns once the tables are confirmed.
 
 ## 7. Open questions
 
-1. **O1 drift report:** keep it (a short report in the daily routine of anything not
-   declared), or drop it?
-
-Evidence still to collect (migration W2, W3): the Cisco login and posture facts, and how
-the internal names resolve on the Workstation today. They decide N6's values, not the design.
+1. **N4/N5 VPN method:** decided after the trial on the 2TB (results in the journal); the
+   losing method is removed.
 
 ## Change log
 
@@ -239,3 +239,14 @@ the internal names resolve on the Workstation today. They decide N6's values, no
   connections, so Windscribe's WireGuard profiles appear there and Cisco does not. N6 added
   (internal and `.local` names over the VPN). B2 key model added to S2b. Migration checklist
   moved to the dotfiles repo. O1 (drift report) carried over from 2026-10-01 as a proposal.
+- 2026-10-03: VPN trial: NetworkManager-openconnect layered (F9 exception while the trial
+  runs), Cisco Secure Client and the Windscribe app in box:vpn, Windscribe also as native
+  NetworkManager WireGuard; keep what works. N6 postponed (the `.local` name moves to a
+  real domain). Rebuild plan added (`docs/rebuild-plan.md`).
+- 2026-10-03: custom image kept (F4, with a revisit condition). One nightly job (J1):
+  backup, drift report (O1, confirmed), staged upgrades; never reboots. CAC is a must in
+  three places: Win11 VM (V2), Chrome in box:dev and base Firefox (V3); DoD roots baked
+  into the image (V4).
+- 2026-10-03: restic and distrobox are layered after all (J1 runs them as root, and root
+  must never execute user-writable files); Firefox gets OpenSC through p11-kit, the
+  enterprise policy only if the test shows it missing. Implementation: PR #7.
