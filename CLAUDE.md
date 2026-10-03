@@ -20,9 +20,10 @@ hibernation (F2) are hard requirements.
 ## Ground rules (non-negotiable)
 - **Never write to the 4TB NVMe** (Fedora 44 Workstation) or the **DAS data disk**
   except reading the restic repo. Their LUKS UUIDs are `PROTECTED_LUKS_UUIDS` in
-  `scripts/targets/site.env` (gitignored) and are enforced by `install-atomic.sh`.
+  `scripts/targets/site.env` (gitignored). With the stock installer (spec L1) nothing
+  enforces them automatically: confirm the target disk before every install.
 - Only the **2TB test drive** is installed to until the user says the test passed.
-- The user runs `install-atomic.sh`, disk operations and anything needing a password
+- The user runs installs, disk operations and anything needing a password
   or a physical action. Claude prepares and verifies.
 - This repo and the GHCR image (`ghcr.io/samwick07/fedora-cosmic-frmwrk`) are
   **public**: nothing identifying anywhere in git — no user name, home paths,
@@ -56,6 +57,7 @@ Evidence for the spec: `scripts/inventory-workstation.sh` (read-only, private ou
 ## Working style
 - The user is often on a machine without their keys: give exact commands to paste,
   ask for the terminal output, diagnose from it.
-- Cloud sessions can read this public repo but cannot push. Deliver commits as a
-  `git am` patch; the user applies it on the machine that has the GitHub key.
+- Changes go through pull requests (the Claude GitHub App has push access): small
+  commits on a branch, `scripts/check-leaks.sh` clean, PR; the user reviews and merges.
+  Patch files are a fallback only (downloads from the chat did not reach the laptop).
 - Commit messages: imperative, say why. Keep `docs/HANDOFF.md` current.

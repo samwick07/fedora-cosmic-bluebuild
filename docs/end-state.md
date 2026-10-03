@@ -53,7 +53,7 @@ list to port.
 | P3 | Suspend on lid close (s2idle), Bluetooth works after resume | image | day-1 | confirmed | lid close/open; BT device reconnects |
 | P4 | Wi-Fi, Bluetooth, audio, webcam, both USB-C displays | base image | day-1 | confirmed | manual pass |
 | P5 | Firmware updates (fwupd / LVFS) | base image | week-1 | candidate | `fwupdmgr get-updates` |
-| P6 | Fingerprint login and sudo (`fprintd`) | image | later | candidate | — do you use it? |
+| P6 | Fingerprint login and sudo (`fprintd`) | image | week-1 | confirmed (in daily use for sudo on the Workstation) | `sudo` prompts for the finger |
 | P7 | Ambient light / auto brightness (`iio-sensor-proxy`) | image | later | candidate | — does COSMIC use it? |
 | P8 | Power profiles / battery charge limit | base image | week-1 | candidate | `powerprofilesctl` |
 
