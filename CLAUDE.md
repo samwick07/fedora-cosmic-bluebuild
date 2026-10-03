@@ -18,10 +18,11 @@ the spec does not ask for is to be retired, not repaired. Fixed: COSMIC (F1) and
 hibernation (F2) are hard requirements.
 
 ## Ground rules (non-negotiable)
-- **Never write to the 4TB NVMe** (Fedora 44 Workstation). **The DAS** is read-only except
-  reading the restic archive, until migration: W1/W4 write only into `DAS/migration/`, and
-  from M11 on the nightly job writes only under `frmwrk-snapshots/` (spec F8). The old restic
-  archive is never written. LUKS UUIDs are `PROTECTED_LUKS_UUIDS` in
+- **Never write to the 4TB NVMe** (Fedora 44 Workstation). **The DAS** is an ordinary disk
+  with other data on it: this project writes only `DAS/migration/` (W1, W4) and
+  `DAS/frmwrk-snapshots/` (the nightly job, from M11). The old restic repo on it is a stale
+  backup: never written, deleted only after the migration is complete and the new backups
+  have proven themselves (spec F8, MIGRATION part C). LUKS UUIDs are `PROTECTED_LUKS_UUIDS` in
   `scripts/targets/site.env` (gitignored). With the stock installer (spec L1) nothing
   enforces them automatically: confirm the target disk (model, serial) before every install.
 - Only the **2TB test drive** is installed to until the user says the test passed.
@@ -42,15 +43,17 @@ hibernation (F2) are hard requirements.
 | Layer | Where | What |
 | --- | --- | --- |
 | Spec | `docs/end-state.md` | every requirement, its lane, its check; section 6 = acceptance |
-| Image (system) | this repo: `recipes/`, `files/` | stock COSMIC Atomic + the F9 set (virtualization stack, Tailscale, restic, distrobox, CAC), Homebrew (module), nightly job J1, `cosmic-acceptance`; `VARIANT_ID=frmwrk` / `dsktp` |
-| Install | `docs/install.md` | stock ISO → `bootc switch` → signed rebase (L1) |
-| User | `github.com/samwick07/dotfiles` (chezmoi, private) | `~/.Brewfile` (CLI), `distrobox.ini` (dev, claude, rocm) + `vpn.ini` (rootful, by hand), shell, CAC for Chrome, Syncthing unit |
+| Image (system) | this repo: `recipes/`, `files/` | stock COSMIC Atomic + the F9 set (virtualization stack, Tailscale, restic, distrobox, CAC), Homebrew (module), nightly job J1, first-boot services, the rootful `net` box, `cosmic-acceptance`, `cosmic-enroll`; `VARIANT_ID=frmwrk` / `dsktp` |
+| Install | `install/frmwrk.ks` + `docs/install.md` | stock ISO + kickstart (partitioning, image); first boot finishes alone (L1) |
+| User | `github.com/samwick07/dotfiles` (chezmoi, private) | `~/.Brewfile` (CLI), `distrobox.ini` (rootless dev, claude, rocm), shell, CAC for Chrome, Syncthing unit |
 | Migration (one-time) | dotfiles `.migration-prep/MIGRATION.md` (private) | W1–W6 on the Workstation, M1–M12 on the laptop |
-| Backup / restore | J1 in the image; `docs/restore.md` | hourly home snapshots, DAS rsync snapshots, restic to B2; `$HOME`, `/etc`, `/var` state, VM disks, manifest (R1) |
+| Backup / restore | J1 in the image; `docs/restore.md` | daily home snapshot, DAS rsync snapshots, restic to B2; `$HOME`, `/etc`, `/var` state, VM disks, manifest (R1); weekly warm spare (L4) |
 
 App lanes: GUI → flatpak · CLI → Homebrew (`~/.Brewfile`) · toolchains, IDEs, Chrome (CAC),
 Ghostty → distrobox `dev` (Fedora) · Claude Desktop + Claude Code → `claude` (Ubuntu 24.04) ·
-ROCm → `rocm` · VPN vendor clients → rootful `vpn` · Windows apps → Bottles or the Win11 VM.
+ROCm → `rocm` · VPN vendor clients and root network tools → rootful `net` (image-managed) ·
+Windows apps → Bottles or the Win11 VM. No manual configuration: anything a person must do
+is either physical (finger, PIN, firmware setting) or a secret typed once.
 
 Docs: `docs/install.md`, `docs/restore.md`, `docs/disaster-recovery.md`, `docs/operations.md`,
 `docs/local-build.md`, `docs/known-issues.md`, `docs/hibernation-setup.md`, `docs/bootloader.md`,

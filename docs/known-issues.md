@@ -21,10 +21,10 @@ moves here when it is a lasting limitation rather than something to fix.
   [Framework forum](https://community.frame.work/t/responded-fw-13-amd-lockup-on-hibernate-only-after-suspend-battery-drains-on-suspend-then-hibernate/53860)).
   Acceptance P2 runs 10 cycles on the 2TB. Upstream work to allow encrypted hibernation with
   Secure Boot on is under review (2026); F2 keeps Secure Boot off until it lands.
-- **SPICE USB redirection of the CAC reader** (V2, daily path). While the reader is
-  redirected the host loses it; Chrome and Firefox on the host see no card until it is
-  given back. If redirection fails because host pcscd holds the reader, `win11-cac attach`
-  stops pcscd first (fallback).
+- **CAC reader in the VM** (V2). `win11-cac attach` (default) stops host pcscd and hands
+  the reader over; `detach` gives it back. SPICE redirection (fallback) may fail while host
+  pcscd holds the reader: close the host's browsers or `sudo systemctl stop pcscd` first.
+  Either way the host sees no card until it is given back.
 - **CAC in Chrome (dev distrobox).** Chrome is the RPM in the `dev` box. Tested on the
   Workstation (2026-10-02, throwaway box, no reader attached): the box reaches the host's
   pcscd through the /run/pcscd symlink (SCardEstablishContext ok; without the symlink

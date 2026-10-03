@@ -28,6 +28,7 @@ signed with cosign and published to GHCR.
 
 ```
 recipes/       image definitions (common-modules.yml + one recipe per machine)
+install/       kickstart for the stock COSMIC Atomic ISO (docs/install.md)
 files/         everything copied into the image (see files/README.md)
 scripts/       CI and check helpers (smoke test, leak check, build decision, Workstation inventory);
                targets/site.example.env = template for the private site.env

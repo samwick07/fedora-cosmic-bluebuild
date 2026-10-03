@@ -6,9 +6,9 @@
 | --- | --- |
 | See what happened overnight | The notification at login, or `nightly` (alias: the job's report and log). Failures are listed first; the restore point line says how old the newest backup is |
 | Apply an update | The nightly job only **stages** the image (`bootc status` shows it). Reboot when nothing long is running; nothing reboots on its own |
-| Update by hand | `up` (topgrade: staged image, flatpaks, Homebrew, boxes) |
+| Update now | `up` (topgrade: staged image, flatpaks, Homebrew, boxes) |
 | Roll back | Previous or pinned entry in GRUB, or `sudo bootc rollback && systemctl reboot` |
-| Get a file back | `docs/restore.md` (hourly snapshots, DAS, B2) |
+| Get a file back | `docs/restore.md` (daily snapshots, DAS, B2) |
 | Something broke | `cosmic-report "<what you were doing>"`; a bug → GitHub issue with `cosmic-report --public` (`known-issues.md`) |
 
 ## Changing the system
@@ -30,11 +30,13 @@ Anything changed by hand outside these shows up in the next drift report.
 
 | Path | Purpose |
 | --- | --- |
-| `/usr/bin/cosmic-nightly` | The one scheduled job (04:30 + hourly catch-up): manifest, hourly home snapshots, backups to the DAS and B2, drift report, staged upgrades (image, flatpaks, Homebrew, boxes), report. Never reboots. `--dry-run`, `--catch-up` |
+| `/usr/bin/cosmic-nightly` | The one scheduled job (04:30 + hourly catch-up): manifest, the daily home snapshot, backups to the DAS and B2, drift report, staged upgrades (image, flatpaks, Homebrew, boxes), report. Never reboots. `--dry-run`, `--catch-up` |
 | `/usr/bin/cosmic-nightly-notify` | Shows the report once at login |
-| `/usr/bin/cosmic-acceptance` | Spec section 6, automatic part; `--user` for the user layer |
+| `/usr/bin/cosmic-acceptance` | Spec section 6, automatic part; `--user` for the user layer; `--pin` pins the accepted deployment |
+| `/usr/bin/cosmic-enroll` | Fingerprint, then TPM2 + PIN on every LUKS device (`--check` to look) |
+| `cosmic-signed-origin`, `cosmic-hibernation`, `cosmic-net-box` (services) | First boot finishes alone: signature-verified updates, hibernation kargs, the rootful `net` box (VPN clients from `/var/lib/net-box/installers/`, nmap/mtr/tcpdump wrappers in `/usr/local/bin`) |
 | `/usr/bin/cac-status` | CAC on the host: pcscd, OpenSC, DoD roots, readers |
-| `/usr/bin/win11-cac` | Fallback: hand the CAC reader to the Win11 VM host-side and back (`attach` / `detach` / `status`); the daily path is SPICE redirection in the VM window |
+| `/usr/bin/win11-cac` | The default way to hand the CAC reader to the Win11 VM and back (`attach` / `detach` / `status`); SPICE redirection in the VM window is the fallback |
 | `/usr/bin/enable-hibernation.sh` | Check/repair resume and LUKS kargs, swap, SELinux module. `--check` |
 | `/usr/bin/cosmic-report` | State snapshot for the journal or an issue; `--public` redacts |
 | `/usr/bin/cosmic-session-wait` | Session start: waits for the greeter to release the GPU (`known-issues.md`) |
@@ -46,7 +48,7 @@ The spec (`docs/end-state.md`) records every decision with its reason; the ones 
 
 - **Custom image, stock base** (F4, F9): CI catches failures before the laptop does; only what needs the host is layered.
 - **Homebrew for CLI, distrobox for toolchains and GUI dev apps, flatpak for GUI apps** — Universal Blue's lanes.
-- **The whole virtualization stack layered** (V1, A14): SPICE USB redirection of the CAC reader is used daily.
+- **The whole virtualization stack layered** (V1, A14): SPICE USB redirection of the CAC reader must work as the fallback to `win11-cac`.
 - **One nightly job, never a reboot** (J1, L2): long sessions are never interrupted.
 - **Two different backups** (F8): plain files on the DAS, encrypted restic on B2; a restore point within a day (R1).
 - **GRUB, not systemd-boot** (`bootloader.md`); **modular libvirt sockets**, not `libvirtd.service`.

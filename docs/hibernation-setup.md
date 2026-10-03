@@ -8,8 +8,8 @@ partition; resume asks for the LUKS passphrase and restores the session.
 | Requirement | Where it is set |
 | --- | --- |
 | Swap partition ≥ RAM (60 GB RAM → 96 GB) inside LUKS | Partition layout (`docs/install.md`) |
-| `rd.luks.uuid=<swap LUKS uuid>` on the kernel cmdline so the initramfs can unlock it before resume | Anaconda — or `enable-hibernation.sh` |
-| `resume=UUID=<swap fs uuid>` on the kernel cmdline | Anaconda — or `enable-hibernation.sh` |
+| `rd.luks.uuid=<swap LUKS uuid>` on the kernel cmdline so the initramfs can unlock it before resume | Anaconda — completed at every boot by `cosmic-hibernation.service` (`enable-hibernation.sh`) |
+| `resume=UUID=<swap fs uuid>` on the kernel cmdline | Anaconda — completed at every boot by `cosmic-hibernation.service` (`enable-hibernation.sh`) |
 | `/etc/crypttab` + `/etc/fstab` entries so swap is active after boot | Anaconda |
 | `HibernateDelaySec=300` | image: `/usr/lib/systemd/sleep.conf.d/10-hibernate.conf` |
 | `HandleLidSwitch=suspend-then-hibernate` (docked too) | image: `/usr/lib/systemd/logind.conf.d/10-lid.conf` |
