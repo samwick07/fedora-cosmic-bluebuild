@@ -2,22 +2,22 @@
 # configure-hibernation.sh — BUILD-TIME: bake the static half of
 # suspend-then-hibernate into the image.
 #
-# Baked here:      systemd sleep/logind drop-ins, SELinux policy module
-# Per-install:     resume=UUID=, rd.luks.uuid= (swap) — written by
-#                  scripts/install-atomic.sh (bootc path) or
-#                  /usr/bin/enable-hibernation.sh (Anaconda path)
+# Baked here:      systemd sleep/logind drop-ins (in /usr/lib, so they always follow the
+#                  image and never count as local /etc drift), SELinux policy module
+# Per-install:     resume=UUID=, rd.luks.uuid= (swap) — written by Anaconda (stock ISO,
+#                  spec L1); /usr/bin/enable-hibernation.sh checks and adds what is missing
 set -euo pipefail
 
 # ── systemd drop-ins (never overwrite the shipped files) ──────────────
-install -d /etc/systemd/sleep.conf.d /etc/systemd/logind.conf.d
+install -d /usr/lib/systemd/sleep.conf.d /usr/lib/systemd/logind.conf.d
 
-cat > /etc/systemd/sleep.conf.d/10-hibernate.conf <<'EOF'
+cat > /usr/lib/systemd/sleep.conf.d/10-hibernate.conf <<'EOF'
 # Suspend first; hibernate after this long asleep (5 min).
 [Sleep]
 HibernateDelaySec=300
 EOF
 
-cat > /etc/systemd/logind.conf.d/10-lid.conf <<'EOF'
+cat > /usr/lib/systemd/logind.conf.d/10-lid.conf <<'EOF'
 # Lid close -> suspend-then-hibernate, docked or not.
 [Login]
 HandleLidSwitch=suspend-then-hibernate
@@ -25,8 +25,8 @@ HandleLidSwitchDocked=suspend-then-hibernate
 EOF
 
 # ── SELinux: allow logind/sleep the swap + state accesses hibernation needs ──
-# checkpolicy (checkmodule) and policycoreutils (semodule_package) are layered
-# by common-modules.yml, so the module is compiled and installed at build time.
+# checkpolicy (checkmodule) is installed for this build step only (recipe-frmwrk.yml
+# removes it afterwards); the module is compiled and installed at build time.
 # The source is kept in /usr/share/selinux so it can be rebuilt on the host.
 install -d /usr/share/selinux/packages/fedora-cosmic-atomic
 cat > /usr/share/selinux/packages/fedora-cosmic-atomic/systemd_hibernate.te <<'EOF'
@@ -61,4 +61,5 @@ else
     echo "WARNING: checkmodule/semodule_package missing at build time; enable-hibernation.sh will install the module on the host." >&2
 fi
 
-echo "Hibernation base config installed (sleep.conf.d, logind.conf.d, SELinux)."
+chmod 0644 /usr/lib/systemd/sleep.conf.d/10-hibernate.conf /usr/lib/systemd/logind.conf.d/10-lid.conf
+echo "Hibernation base config installed (sleep.conf.d, logind.conf.d in /usr/lib, SELinux)."

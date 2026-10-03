@@ -1,0 +1,17 @@
+[Unit]
+Description=Create and maintain the rootful net distrobox (VPN clients, network tools)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/cosmic-net-box
+# First boot may have no network (the image pull fails): try again until it works.
+Restart=on-failure
+RestartSec=5min
+TimeoutStartSec=1h
+
+
+[Install]
+WantedBy=multi-user.target

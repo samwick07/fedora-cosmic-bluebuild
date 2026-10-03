@@ -65,10 +65,13 @@ modules:
     files:
       - source: scripts/enable-hibernation.sh
         destination: /usr/bin/enable-hibernation.sh
+      # L1/F2: at every boot, add resume= / rd.luks.uuid when missing (staged)
+      - source: systemd/system/cosmic-hibernation.service
+        destination: /usr/lib/systemd/system/cosmic-hibernation.service
 
   - type: script@v2
     snippets:
-      - "chmod 0755 /usr/bin/enable-hibernation.sh && chmod 0644 /usr/lib/dracut/dracut.conf.d/90-tpm2.conf"
+      - "chmod 0755 /usr/bin/enable-hibernation.sh && chmod 0644 /usr/lib/dracut/dracut.conf.d/90-tpm2.conf /usr/lib/systemd/system/cosmic-hibernation.service && systemctl enable cosmic-hibernation.service"
 
   # ─────────────────────────────────────────────
   # BOOT SPLASH: graphical LUKS prompt

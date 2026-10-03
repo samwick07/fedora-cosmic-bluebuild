@@ -7,12 +7,12 @@ partition; resume asks for the LUKS passphrase and restores the session.
 
 | Requirement | Where it is set |
 | --- | --- |
-| Swap partition ≥ RAM (60 GB RAM → 96 GB) inside LUKS | Partition layout (docs/migration-guide.md Phase 1) |
-| `rd.luks.uuid=<swap LUKS uuid>` on the kernel cmdline so the initramfs can unlock it before resume | `install-atomic.sh` (`--karg`) — or Anaconda |
-| `resume=UUID=<swap fs uuid>` on the kernel cmdline | `install-atomic.sh` (`--karg`) — or `enable-hibernation.sh` |
-| `/etc/crypttab` + `/etc/fstab` entries so swap is active after boot | `install-atomic.sh` — or Anaconda |
-| `HibernateDelaySec=300` | image: `/etc/systemd/sleep.conf.d/10-hibernate.conf` |
-| `HandleLidSwitch=suspend-then-hibernate` (docked too) | image: `/etc/systemd/logind.conf.d/10-lid.conf` |
+| Swap partition ≥ RAM (60 GB RAM → 96 GB) inside LUKS | Partition layout (`docs/install.md`) |
+| `rd.luks.uuid=<swap LUKS uuid>` on the kernel cmdline so the initramfs can unlock it before resume | Anaconda — completed at every boot by `cosmic-hibernation.service` (`enable-hibernation.sh`) |
+| `resume=UUID=<swap fs uuid>` on the kernel cmdline | Anaconda — completed at every boot by `cosmic-hibernation.service` (`enable-hibernation.sh`) |
+| `/etc/crypttab` + `/etc/fstab` entries so swap is active after boot | Anaconda |
+| `HibernateDelaySec=300` | image: `/usr/lib/systemd/sleep.conf.d/10-hibernate.conf` |
+| `HandleLidSwitch=suspend-then-hibernate` (docked too) | image: `/usr/lib/systemd/logind.conf.d/10-lid.conf` |
 | SELinux module `systemd_hibernate` | image: compiled by `configure-hibernation.sh`, source and `.pp` in `/usr/share/selinux/packages/fedora-cosmic-atomic/` |
 | **Secure Boot OFF** — kernel lockdown blocks hibernation | Firmware (F2 → Security) |
 
@@ -47,7 +47,7 @@ sudo ausearch -m avc -ts recent     # SELinux denials → sudo audit2allow -a
 Kernel 6.11+ has a known Bluetooth black-screen-on-resume bug on the Framework;
 Framework's workaround (a systemd unit that toggles Bluetooth around sleep) is at
 <https://github.com/FrameworkComputer/linux-docs/tree/main/hibernation>. Add it
-to `files/etc/systemd/system/` if you hit it.
+under `files/systemd/system/` if you hit it (a spec row first, P3).
 
 ## Desktop
 

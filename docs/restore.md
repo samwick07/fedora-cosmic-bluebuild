@@ -11,7 +11,7 @@ Paths below write `$SITE_USER`; `$DAS` is the snapshot folder from `nightly.env`
 
 | Situation | Copy | Why |
 | --- | --- | --- |
-| A file deleted or broken in the last 48 hours | `/var/home/.snapshots/` on the laptop | Hourly read-only snapshots (S2e); no tool, no network |
+| A file deleted or broken in the last week | `/var/home/.snapshots/` on the laptop | One read-only snapshot a day, 7 kept (S2e); no tool, no network |
 | A file or folder, at the desk | DAS | Plain files: open or copy them, no tool, no password |
 | A file or folder, away from the DAS | B2 | restic downloads only what the file needs |
 | The laptop's disk is lost | DAS if at hand, else B2 | Same content; the DAS is faster |
@@ -19,11 +19,11 @@ Paths below write `$SITE_USER`; `$DAS` is the snapshot folder from `nightly.env`
 
 ## One file or folder
 
-From the laptop's own hourly snapshots (the last 48 hours; same disk, so not a backup):
+From the laptop's own daily snapshots (the last 7 days; same disk, so not a backup):
 
 ```bash
-ls /var/home/.snapshots/                     # 2026-10-03_0900  2026-10-03_1000 …
-cp -a /var/home/.snapshots/2026-10-03_1000/$SITE_USER/Documents/report.odt ~/Documents/
+ls /var/home/.snapshots/                     # 2026-10-02  2026-10-03 …
+cp -a /var/home/.snapshots/2026-10-03/$SITE_USER/Documents/report.odt ~/Documents/
 ```
 
 From the DAS (dated folders, newest last):
@@ -78,7 +78,7 @@ sudo restorecon -Rv /etc/NetworkManager
    | --- | --- |
    | `fstab`, `crypttab` | new partition and LUKS UUIDs |
    | `machine-id` | must be unique per installation |
-   | `passwd`, `group`, `shadow`, `gshadow`, `subuid`, `subgid` | system ids may differ on a new install; re-add the user to `libvirt` etc. by hand |
+   | `passwd`, `group`, `shadow`, `gshadow`, `subuid`, `subgid` | system ids may differ on a new install; the image puts the user back into `libvirt` at boot |
    | `ostree/`, `kernel/` | written by the installer |
    | `hostname` | only if the machine gets a new name |
 

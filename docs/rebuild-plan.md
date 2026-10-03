@@ -1,5 +1,9 @@
 # Rebuild plan: keep / change / retire
 
+**Status: executed** (image PR #7, dotfiles PR #2, docs in this PR). Later decisions — the
+whole virtualization stack layered, Homebrew as the CLI lane, R1 restore point, snapshots —
+are in the spec's change log; this table is the record of the 2026-10-03 refactor.
+
 What happens to every file in this repo and in the dotfiles repo under the confirmed spec
 (`docs/end-state.md`). "Retire" means deleted in a PR; git history and the branch
 `held/first-run-fixes` keep the old code. Work follows the layers: image first, then

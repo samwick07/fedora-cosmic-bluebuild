@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # win11-cac — hand the USB smart-card (CAC) reader to the Windows VM, and back.
-# Shipped in the image at /usr/bin/win11-cac.
+# Shipped in the image at /usr/bin/win11-cac. The default way (spec V2); SPICE
+# click-to-redirect in virt-manager / virt-viewer is the fallback.
 #
 #   sudo win11-cac attach  [VM]   # host releases the reader, VM gets it (live)
 #   sudo win11-cac detach  [VM]   # VM releases it, host pcscd gets it back

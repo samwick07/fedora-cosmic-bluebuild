@@ -60,8 +60,8 @@ podman images localhost/fedora-cosmic-frmwrk          # -> localhost/fedora-cosm
 ```
 
 `-B podman` matters: without it BlueBuild picks Docker whenever Docker is
-installed, the image lands in Docker's storage, and `install-atomic.sh` (which
-only looks in podman storage) stops with "image not found". To move an image
+installed, the image lands in Docker's storage, and `bootc switch --transport
+containers-storage` (which only looks in podman storage) cannot find it. To move an image
 that was built with Docker: `docker save localhost/fedora-cosmic-frmwrk:latest | podman load`.
 
 Smoke-test the image before installing or pushing (the same script gates the
@@ -104,8 +104,8 @@ done
 
 | Situation | Command on the machine |
 | --- | --- |
-| Fresh install of a disk | `sudo scripts/install-to-disk.sh /dev/disk/by-id/<disk>` (`disaster-recovery.md`; installs the image from local podman storage, sets GHCR as update source) |
-| Routine update | `sudo bootc upgrade` (or `rpm-ostree upgrade`) then reboot |
+| Fresh install of a disk | `docs/install.md` (stock ISO, then `bootc switch` and the signed rebase) |
+| Routine update | the nightly job stages it (`cosmic-nightly`); reboot when it suits you. By hand: `sudo bootc upgrade`, then reboot |
 | Test a local build without pushing | `sudo bootc switch --transport containers-storage localhost/fedora-cosmic-frmwrk:latest` — the image must be in **root's** podman storage (`sudo podman images`); copy with `podman save … \| sudo podman load` if you built rootless |
 | Go back to GHCR after a local test | `sudo bootc switch ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` |
 | Enforce signatures | `sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` — only after a signed push |
@@ -113,10 +113,11 @@ done
 
 ## Fedora version bump (44 → 45)
 
-1. Wait ~2–4 weeks after release for the COPRs (ghostty, starship, topgrade) to have F45 builds.
+1. Wait ~2–4 weeks after release for the Tailscale repo and the `dev` box's COPR (Ghostty) to have F45 builds.
 2. `image-version: 45` in **both** recipe files. Commit.
-3. Build locally, smoke-test, `bootc switch --transport containers-storage …` on the test drive or laptop, reboot, live with it a day.
-4. Push. `bootc upgrade` everywhere else.
+3. Build locally (or open a PR: CI builds and smoke-tests it), `bootc switch --transport containers-storage …` on the test drive, reboot, `sudo cosmic-acceptance`, live with it a day.
+4. Move the `dev` box to `fedora:45` in the dotfiles at the same time (pcsc-lite in the box must match the host's for CAC).
+5. Merge. The nightly job stages it everywhere else.
 
 ## Housekeeping
 

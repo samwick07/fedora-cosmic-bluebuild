@@ -1,0 +1,15 @@
+[Unit]
+Description=Verify every future update: move the image origin to ostree-image-signed (spec L1)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/cosmic-signed-origin
+# Needs the registry; first boot may be offline.
+Restart=on-failure
+RestartSec=5min
+
+[Install]
+WantedBy=multi-user.target

@@ -31,10 +31,12 @@ check() {  # description, command...
 variant=$(run sh -c '. /usr/lib/os-release; echo "$VARIANT_ID"')
 echo "== $IMG (VARIANT_ID=$variant)"
 
-BIN="/usr/libexec/libvirt-user-groups /usr/bin/cosmic-nightly /usr/bin/cosmic-nightly-notify /usr/bin/cosmic-session-wait /usr/bin/win11-cac /usr/bin/cac-status /usr/bin/cosmic-report"
-DATA="/usr/lib/systemd/system/cosmic-nightly.service /usr/lib/systemd/system/cosmic-nightly.timer /usr/lib/systemd/system/cosmic-nightly-catchup.service /usr/lib/systemd/system/cosmic-nightly-catchup.timer /etc/xdg/autostart/cosmic-nightly-notify.desktop /usr/share/fedora-cosmic-atomic/flatpaks.list /usr/share/fedora-cosmic-atomic/drift-ignore.regex /usr/share/fedora-cosmic-atomic/nightly.example.env /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf /usr/lib/modules-load.d/i2c-dev.conf /usr/lib/udev/rules.d/60-i2c-uaccess.rules /usr/lib/systemd/system/libvirt-relabel.service /usr/lib/systemd/system/libvirt-user-groups.service"
+BIN="/usr/bin/cosmic-enroll /usr/libexec/cosmic-signed-origin /usr/libexec/cosmic-net-box /usr/bin/cosmic-acceptance /usr/libexec/libvirt-user-groups /usr/bin/cosmic-nightly /usr/bin/cosmic-nightly-notify /usr/bin/cosmic-session-wait /usr/bin/win11-cac /usr/bin/cac-status /usr/bin/cosmic-report"
+DATA="/usr/lib/systemd/system/cosmic-nightly.service /usr/lib/systemd/system/cosmic-nightly.timer /usr/lib/systemd/system/cosmic-nightly-catchup.service /usr/lib/systemd/system/cosmic-nightly-catchup.timer /etc/xdg/autostart/cosmic-nightly-notify.desktop /usr/share/fedora-cosmic-atomic/flatpaks.list /usr/share/fedora-cosmic-atomic/drift-ignore.regex /usr/share/fedora-cosmic-atomic/nightly.example.env /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf /usr/lib/modules-load.d/i2c-dev.conf /usr/lib/udev/rules.d/60-i2c-uaccess.rules /usr/lib/systemd/system/libvirt-relabel.service /usr/lib/systemd/system/libvirt-user-groups.service /usr/lib/systemd/system/cosmic-signed-origin.service /usr/lib/systemd/system/cosmic-net-box.service /usr/share/fedora-cosmic-atomic/net-box.ini"
 
 check "bootc present"              run bootc --version
+# The same lint the Universal Blue template runs on every build (/var content, kargs, …)
+check "bootc container lint"       run bootc container lint
 check "shipped scripts executable" run sh -c "for f in $BIN; do test -x \$f || { echo not executable: \$f; exit 1; }; done"
 check "shell scripts parse"        run sh -c "for f in $BIN; do bash -n \$f || exit 1; done"
 check "shipped data readable (644)" run sh -c "for f in $DATA; do [ \$(stat -c %a \$f) = 644 ] || { stat -c '%a %n' \$f; exit 1; }; done"
@@ -62,13 +64,15 @@ check "no stray top-level dirs"    run bash -c 'x=$(ls / | grep -vE "^(afs|bin|b
 check "DoD CAs in system trust (V4)" run sh -c 'n=$(trust list | grep -ci "DoD"); [ "$n" -ge 10 ] || { echo "only $n DoD entries"; exit 1; }'
 # J1: the one updater; stages, never applies, never reboots
 check "nightly timer enabled (J1)" run sh -c '[ "$(systemctl is-enabled cosmic-nightly.timer)" = enabled ]'
+check "first-boot and net box units enabled (L1, N4)" run sh -c 'for u in cosmic-signed-origin.service cosmic-net-box.service; do [ "$(systemctl is-enabled $u)" = enabled ] || { echo "$u not enabled"; exit 1; }; done'
 check "catch-up timer enabled (R1)" run sh -c '[ "$(systemctl is-enabled cosmic-nightly-catchup.timer)" = enabled ]'
 check "nightly job never reboots"  run sh -c '! grep -vE "^[[:space:]]*#" /usr/bin/cosmic-nightly | grep -nE "bootc upgrade[^|]*--apply|bootc switch|systemctl (reboot|poweroff|kexec|soft-reboot)|shutdown -r|systemd-inhibit"'
 check "no second updater"          run sh -c '[ "$(systemctl is-enabled bootc-fetch-apply-updates.timer 2>/dev/null)" != enabled ] || { echo "bootc-fetch-apply-updates.timer is enabled"; exit 1; }'
 check "flatpaks.list == recipe"    bash -c "diff <(grep -v '^#' files/share/flatpaks.list | sed '/^\$/d' | sort) <(sed -n '/type: default-flatpaks/,/scope: user/p' recipes/common-modules.yml | sed -n 's/^ *- \([A-Za-z0-9._-]*\.[A-Za-z0-9._-]*\).*/\1/p' | sort)"
 if [[ "$variant" == frmwrk ]]; then
-    check "lid -> suspend-then-hibernate" run grep -q '^HandleLidSwitch=suspend-then-hibernate' /etc/systemd/logind.conf.d/10-lid.conf
+    check "lid -> suspend-then-hibernate" run grep -q '^HandleLidSwitch=suspend-then-hibernate' /usr/lib/systemd/logind.conf.d/10-lid.conf
     check "fprintd + pam installed"    run rpm -q fprintd fprintd-pam
+    check "hibernation kargs at boot (L1)" run sh -c '[ "$(systemctl is-enabled cosmic-hibernation.service)" = enabled ]'
     check "TPM2 in the initramfs config (P9)" run grep -q 'tpm2-tss' /usr/lib/dracut/dracut.conf.d/90-tpm2.conf
     # Graphical LUKS prompt; in text mode kernel messages scroll it away.
     check "kargs.d: rhgb quiet"   run sh -c 'k=$(cat /usr/lib/bootc/kargs.d/*.toml 2>/dev/null); for a in rhgb quiet; do printf "%s" "$k" | grep -q "\"$a\"" || { echo "missing karg $a in /usr/lib/bootc/kargs.d"; exit 1; }; done'

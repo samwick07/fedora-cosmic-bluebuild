@@ -2,7 +2,7 @@
 # enable-hibernation.sh — HOST: verify or complete the per-installation half of
 # hibernation. Shipped at /usr/bin/enable-hibernation.sh.
 #
-# bootc path  (scripts/install-atomic.sh): resume=, rd.luks.uuid=, crypttab and
+# (retired bootc installer path): resume=, rd.luks.uuid=, crypttab and
 #             the swap fstab line are already written -> this script only checks.
 # Anaconda path: Anaconda writes crypttab/fstab and rd.luks.uuid but NOT resume=
 #             -> this script adds resume= via rpm-ostree kargs.
@@ -12,6 +12,7 @@
 # know, not paper over it.
 #
 # Usage: sudo enable-hibernation.sh [--check]
+# Runs at every boot as cosmic-hibernation.service (frmwrk image); by hand only to look.
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "ERROR: run with sudo" >&2; exit 1; }
 CHECK_ONLY=0; [[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
@@ -35,7 +36,9 @@ ok "swap partition $SWAP_DEV (UUID $SWAP_UUID, $(swapon --show=SIZE --noheadings
 
 # 2. LUKS underneath the swap must be unlocked in the initramfs
 SWAP_LUKS_UUID=""
-parent=$(lsblk -no PKNAME "$SWAP_DEV" | head -1)
+# The swap is a dm-crypt mapping; its LUKS partition is the "part" it sits on. (lsblk's
+# PKNAME is empty for dm devices, so walk the dependencies with -s instead.)
+parent=$(lsblk -lnso NAME,TYPE "$SWAP_DEV" | awk '$2=="part"{print $1; exit}')
 if [[ -n "$parent" && $(blkid -s TYPE -o value "/dev/$parent") == crypto_LUKS ]]; then
     SWAP_LUKS_UUID=$(blkid -s UUID -o value "/dev/$parent")
     if grep -q "rd.luks.uuid=$SWAP_LUKS_UUID\|rd.luks.uuid=luks-$SWAP_LUKS_UUID" /proc/cmdline; then
@@ -77,8 +80,8 @@ else
 fi
 
 # 5. systemd config + lockdown
-[[ -f /etc/systemd/sleep.conf.d/10-hibernate.conf ]] && ok "sleep.conf.d drop-in present" || bad "sleep.conf.d/10-hibernate.conf missing (image build issue)"
-[[ -f /etc/systemd/logind.conf.d/10-lid.conf ]]     && ok "logind.conf.d drop-in present"  || bad "logind.conf.d/10-lid.conf missing (image build issue)"
+[[ -f /usr/lib/systemd/sleep.conf.d/10-hibernate.conf || -f /etc/systemd/sleep.conf.d/10-hibernate.conf ]] && ok "sleep.conf.d drop-in present" || bad "sleep.conf.d/10-hibernate.conf missing (image build issue)"
+[[ -f /usr/lib/systemd/logind.conf.d/10-lid.conf || -f /etc/systemd/logind.conf.d/10-lid.conf ]] && ok "logind.conf.d drop-in present"  || bad "logind.conf.d/10-lid.conf missing (image build issue)"
 if [[ -r /sys/kernel/security/lockdown ]] && grep -q '\[integrity\]\|\[confidentiality\]' /sys/kernel/security/lockdown; then
     bad "kernel lockdown active (Secure Boot ON) — hibernation is blocked. Disable Secure Boot in firmware."
 else

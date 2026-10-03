@@ -1,67 +1,45 @@
-# Disaster recovery: a new or replacement drive
+# Disaster recovery
 
-The system is declarative: the image (this repo, GHCR), the user layer
-(chezmoi dotfiles) and the data (restic on the DAS) are all outside the
-laptop. A dead NVMe costs a drive and an afternoon of restore time, nothing
-else — as long as the pieces below exist.
+Nothing on the laptop is the only copy. The system is rebuilt from two repositories and
+the data from two backups; a dead drive costs a drive and an afternoon.
+
+| Lost | Comes back from | How |
+| --- | --- | --- |
+| A file, up to a week ago | `/var/home/.snapshots/` (daily, last 7, on the laptop) | `docs/restore.md` |
+| The laptop's disk, and you need to work **now** | The warm spare: the 2TB in the DAS enclosure, refreshed weekly (L4) | put it in the slot (or boot it from the enclosure), unlock, work; at most a week behind, plus whatever restore brings back |
+| A file or folder, days ago | DAS snapshots (plain files) or B2 (restic) | `docs/restore.md` |
+| A bad update | The previous or the pinned deployment in GRUB | `sudo bootc rollback`, or pick it at boot |
+| The system disk, or the laptop | Image (GHCR) + dotfiles (GitHub) + data (DAS or B2) | below |
+| The DAS | B2 (independent tool, place and format) | replace the DAS; the next night writes a new snapshot series |
 
 ## What must exist before you need it
 
 | Piece | Where | Check |
 | --- | --- | --- |
-| Image | `ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` (public, signed) | `cosign verify --key cosign.pub …` |
-| Repo + `cosign.pub` | github.com/samwick07/fedora-cosmic-bluebuild | — |
-| `site.env` (user, hostname, DAS UUID, swap size, protected disks) | private dotfiles repo `.migration-prep/site.env`, the DAS root, the key USB | `diff` the copies after any change |
-| restic repo | DAS: `frmwrk-restic-repo` | backup log ends with `no errors were found` |
-| A bootable rescue system | the old test drive in its USB enclosure (has every tool below + site.env), or any Fedora live USB with podman | boot it once a quarter |
-| Secrets | your head / password manager: DAS LUKS passphrase, restic passphrase, GitHub login (for the private dotfiles if the SSH key is not restored yet) | — |
+| Image | `ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` (public, signed, rebuilt nightly) | `cosign verify --key cosign.pub ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` |
+| Image definition | this repository | — |
+| User layer | the private dotfiles repository | `chezmoi status` empty (drift report) |
+| Data and machine state | DAS snapshots + B2, nightly (S2, R1) | the nightly report: restore point < 26 h |
+| Secrets | password manager: LUKS passphrase, restic repository password, B2 keys (nightly and admin), GitHub login | — |
+| A warm spare | the 2TB in the DAS enclosure, refreshed weekly by the nightly job (L4) | the report's weekly line; a rehearsal boot each quarter with networking off |
 
-The new drive's LUKS passphrase and the login password are chosen during the
-procedure.
+## Rebuild a machine
 
-## Procedure
+1. Install per `docs/install.md` (stock ISO + kickstart; the first boot finishes the rest;
+   Secure Boot off). To return to the exact image of the last
+   backup, switch to the digest in the manifest instead of `:latest` (`docs/restore.md`).
+2. User layer: SSH key, `brew install chezmoi`, `chezmoi init --apply`.
+3. Restore per `docs/restore.md` "The whole machine as of yesterday": home, `/etc` except
+   the install-specific files, `/var` state, VM disks, then the boxes and flatpaks from the
+   manifest.
+4. `sudo cosmic-acceptance --user`, the drift report, one hibernate/resume.
+5. Re-enrol what is tied to the hardware or the install: `sudo cosmic-enroll` (fingerprint,
+   TPM2 + PIN); Tailscale logs in again unless the old machine is gone for good and its
+   state was restored.
 
-1. **Boot the rescue system.** Test drive: plug in the USB enclosure, **F12**,
-   pick it. Live USB instead: `sudo dnf install -y gdisk dosfstools` if
-   missing, `git clone https://github.com/samwick07/fedora-cosmic-bluebuild`,
-   and put `site.env` into `scripts/targets/` (from the DAS or the key USB).
-2. **Identify the new disk by id, never by letter:**
-   ```bash
-   ls -l /dev/disk/by-id/ | grep -v part      # e.g. nvme-WD_BLACK_SN850X_4000GB_<serial>
-   ```
-3. **Check the disk, then install — one command** (shipped as
-   `/usr/bin/install-to-disk.sh`; repo: `scripts/install-to-disk.sh`):
-   ```bash
-   install-to-disk.sh --check /dev/disk/by-id/nvme-…    # verdict only, no root, no changes
-   sudo install-to-disk.sh /dev/disk/by-id/nvme-…       # add --test for a test install
-   ```
-   | Verdict | What happens |
-   | --- | --- |
-   | **new / blank** | partitions + encrypts it (asks the new LUKS passphrase once), installs — no other questions |
-   | **contains data** | lists what is on it (Windows/NTFS, Linux filesystems, LUKS, mounted), offers to erase it: type `WIPE <name>` |
-   | **already configured** | says so; reinstalling keeps the partitions and LUKS containers (passphrase), reformats ESP, /boot and root (same UUIDs) (you type the disk name) |
-   | **running / protected** | refuses, with the reason |
+## Practise it (spec L4)
 
-   It checks the image is present **before** erasing anything, writes the target
-   file (`auto-<disk>.env`, next to `site.env` or in `/var/lib/fedora-cosmic-atomic/targets`),
-   sets `SKIP_FINALIZE` from the bus (USB = 1) and hands over to `install-atomic.sh`.
-   Under the hood: `prepare-disk.sh` → `make-target-env.sh` → `install-atomic.sh`
-   (each still usable on its own).
-4. **Image:** the rescue drive already has it in root's podman storage after an
-   update; otherwise `sudo podman pull ghcr.io/samwick07/fedora-cosmic-frmwrk:latest`
-   (public) and `cosign verify --key cosign.pub` it — `install-to-disk.sh` stops
-   before erasing anything if the image is missing.
-5. Power off, put the new drive in the slot (if it was in an enclosure), boot.
-   Then `docs/migration-guide.md` Phase 3 (first boot) and Phase 4
-   (`sudo post-install-setup.sh`: DAS, restore by allowlist, hibernation, CAC,
-   VM, chezmoi, Tailscale).
-6. After the first backup from the new drive: `restic snapshots --latest 2`
-   shows the same host name as before (from `SITE_HOSTNAME`), so the backup
-   continues the old snapshot series.
-
-## Practise it
-
-`sudo prepare-disk.sh --selftest` runs the partition + target-file part on a 20 GiB sparse loop
-device (throwaway passphrase), then checks that `make-target-env.sh` reads the
-layout back correctly. Run it after changing either script and once a quarter
-on the rescue drive. A full rehearsal = the 2TB test install itself.
+Every quarter: boot the warm spare once with networking off (it carries the primary's
+Tailscale and Syncthing identities) and open a few files; restore one folder from B2 and
+the VM disk from the DAS. A full rebuild from these steps is the fallback when no spare
+exists.
