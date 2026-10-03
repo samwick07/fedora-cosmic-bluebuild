@@ -21,7 +21,11 @@ run() { "$CTR" run --rm "$IMG" "$@"; }
 check() {  # description, command...
     local desc="$1"; shift
     if out=$("$@" 2>&1); then printf 'ok    %s\n' "$desc"
-    else printf 'FAIL  %s\n%s\n' "$desc" "$(sed 's/^/      /' <<<"$out")"; FAILED=1; fi
+    else printf 'FAIL  %s\n%s\n' "$desc" "$(sed 's/^/      /' <<<"$out")"; FAILED=1
+         # In CI also as an annotation: readable on the PR page and through the API
+         # without downloading the job log.
+         [[ -n "${GITHUB_ACTIONS:-}" ]] && printf '::error title=smoke test::%s: %s\n' "$desc" "$(head -c 900 <<<"$out" | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"
+    fi
 }
 
 variant=$(run sh -c '. /usr/lib/os-release; echo "$VARIANT_ID"')
@@ -36,7 +40,16 @@ check "shell scripts parse"        run sh -c "for f in $BIN; do bash -n \$f || e
 check "shipped data readable (644)" run sh -c "for f in $DATA; do [ \$(stat -c %a \$f) = 644 ] || { stat -c '%a %n' \$f; exit 1; }; done"
 # F9: the whole layered set (plus what the base must keep providing)
 check "layered packages (F9)"      run rpm -q qemu-kvm libvirt libvirt-daemon-kvm edk2-ovmf swtpm tailscale NetworkManager-openconnect restic distrobox pcsc-lite pcsc-lite-ccid opensc firefox
-check "nothing extra layered (F9)" run sh -c 'x=$(rpm -q ghostty starship topgrade chezmoi syncthing tmux openssl checkpolicy iio-sensor-proxy NetworkManager-openvpn 2>/dev/null | grep -v "not installed"); [ -z "$x" ] || { echo "$x"; exit 1; }'
+# Packages the old plan layered: none may be added on top of the base. Compared with
+# the base image itself, so something the base already ships (tmux, say) is not a failure.
+NOT_LAYERED="ghostty starship topgrade chezmoi syncthing tmux openssl checkpolicy iio-sensor-proxy NetworkManager-openvpn"
+BASE="$(sed -n 's/^base-image: *//p' recipes/recipe-*.yml | head -1):$(sed -n 's/^image-version: *//p' recipes/recipe-*.yml | head -1)"
+in_image() { "$CTR" run --rm "$1" sh -c "rpm -q --qf '%{NAME}\\n' $NOT_LAYERED 2>/dev/null | grep -v 'not installed'" | sort; }
+not_layered() {
+    local x; x=$(comm -23 <(in_image "$IMG") <(in_image "$BASE"))
+    [[ -z "$x" ]] || { echo "added on top of the base:" $x; return 1; }
+}
+check "nothing extra layered (F9, vs $BASE)" not_layered
 check "no stray top-level dirs"    run bash -c 'x=$(ls / | grep -vE "^(afs|bin|boot|dev|etc|home|lib|lib64|media|mnt|opt|ostree|proc|root|run|sbin|srv|sys|sysroot|tmp|usr|var)$"); [ -z "$x" ] || { echo "$x"; exit 1; }'
 # V4: DoD roots in the system trust, offline
 check "DoD CAs in system trust (V4)" run sh -c 'n=$(trust list | grep -ci "DoD"); [ "$n" -ge 10 ] || { echo "only $n DoD entries"; exit 1; }'
