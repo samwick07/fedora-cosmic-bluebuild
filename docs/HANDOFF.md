@@ -16,19 +16,20 @@ Last updated: 2026-10-03 (night)
   state, a nightly manifest, hourly catch-up). Approved from the design review: hourly home
   snapshots, backups from a snapshot, box drift and monthly rebuild, live VM backup (V5,
   after M7), DAS write rule, signed-origin check, `cosmic-acceptance`, docs rewrite.
-- **Open pull requests, a chain** (each includes the ones before; merge in order, or only
-  the last): #8 HANDOFF → #9 R1 → #10 virtualization + Homebrew → #11 snapshots, box drift →
-  #12 docs, acceptance, pre-install items. CI green on #9 and #10. Dotfiles **#3** (Brewfile,
-  box baselines, VPN box state, MIGRATION) goes with #10.
+- **Merged:** #8 (HANDOFF), #9 (R1). **Open, a chain** (each includes the ones before;
+  merge in order, or only the last): #10 virtualization + Homebrew → #11 snapshots, box
+  drift → #12 docs, acceptance, pre-install items. CI (build, smoke test, `bootc container
+  lint`) green on all three. Dotfiles **#3** (Brewfile, box baselines, VPN box state,
+  MIGRATION) goes with #10.
 - **Not verifiable here, first seen on the 2TB:** brew in the boxes (read-only mount),
   btrfs snapshots and the bind-mounted restic run, SPICE redirect with host pcscd running,
-  `cosmic-acceptance` on a real machine, `bootc container lint` (runs in CI on #12).
+  `cosmic-acceptance` on a real machine.
 - **VPN trial** (N4/N5) and **CAC everywhere** (V2/V3) are decided by testing on the 2TB.
 - Private facts and rules: `dotfiles/.migration-prep/HANDOFF.md`; the one-time checklist:
   `dotfiles/.migration-prep/MIGRATION.md`.
 
 ## Next (in order)
-1. Merge the chain (#8–#12) and dotfiles #3; confirm the nightly CI publishes and signs.
+1. Merge #10 → #11 → #12 and dotfiles #3; confirm the nightly CI publishes and signs.
 2. Workstation, read-only except `DAS/migration/`: MIGRATION W1 (Docker volumes), W2
    (Cisco facts), W4 (Notepad++), W5 (last backup).
 3. 2TB: `docs/install.md` end to end → `sudo cosmic-acceptance` → user layer →
