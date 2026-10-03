@@ -3,7 +3,7 @@
 Read this first in every session, then `docs/end-state.md`. Keep it short: where things
 stand and the exact next step. No personal values here (write `$SITE_USER`).
 
-Last updated: 2026-10-03 17:00 EDT
+Last updated: 2026-10-03 (evening)
 
 ## Where things stand
 - **Refactor in progress.** The first test install (2TB, 2026-10-02/03) showed that the
@@ -42,11 +42,13 @@ Last updated: 2026-10-03 17:00 EDT
 
 ## Next (in order)
 1. Image PR #7 (F9 package set, nightly job, CAC + DoD roots, old installer retired): its
-   CI build + smoke test runs on the PR; merge when green → the nightly build publishes it.
-2. Dotfiles PR: `distrobox.ini` (dev, claude, rocm, vpn), chezmoi externals, CAC for
-   Chrome in `dev`, topgrade (manual), retire Homebrew. Needed before the next install
-   (the image no longer ships `distrobox.ini`).
-3. Docs PR: `docs/install.md` (L1), retire the old guides, update CLAUDE.md/README.
+   CI build + smoke test runs on the PR (failures now show as annotations on the PR page);
+   merge when green → the nightly build publishes it. Merge this PR (#6) first.
+2. Dotfiles PR #2 (`user-layer-f9`): boxes (dev, claude, rocm; `vpn` by hand), chezmoi
+   externals, CAC for Chrome in `dev`, Syncthing user unit, topgrade manual, Homebrew
+   retired. Merge with #7: the image no longer ships `distrobox.ini`.
+3. Docs PR: `docs/install.md` (L1), retire the old guides, update CLAUDE.md/README; spec
+   C1: gh, btop, fastfetch moved from externals into the `dev` box.
 4. Workstation, read-only, before the laptop moves: MIGRATION W1 (Docker volumes), W2
    (Cisco facts).
 5. 2TB: install (stock ISO + `bootc switch`) → image checks (incl. `cac-status`, the
