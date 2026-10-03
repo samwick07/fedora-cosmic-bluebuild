@@ -24,9 +24,8 @@
 #
 #   cosmic-nightly             run all steps (root)
 #   cosmic-nightly --dry-run   print what would run, change nothing
-#   cosmic-nightly --catch-up  hourly: a read-only snapshot of /var/home (S2e); then the
-#                              manifest and the backups, only when the last good copy is
-#                              older than 24 h and its target is reachable (R1)
+#   cosmic-nightly --catch-up  hourly: the manifest and the backups, only when the last
+#                              good copy is older than 24 h and its target is reachable (R1)
 #
 set -uo pipefail
 
@@ -65,33 +64,19 @@ mark_ok() { [[ $DRY == 1 ]] || date +%s > "$STATE/last-$1"; }
 local_reachable()   { [[ -n "${LOCAL_SNAPSHOT_DIR:-}" && -d "${LOCAL_SNAPSHOT_DIR}" ]]; }
 offsite_reachable() { [[ -n "${RESTIC_REPOSITORY:-}" ]] && nm-online -q -t 30; }
 
-# ── btrfs snapshots of /var/home (S2e; consistency of S2a/S2b) ──────
-# Only when /var/home is its own btrfs subvolume (the default Fedora Atomic layout;
-# checked at install). Otherwise the backups read the live files, as before.
+# ── the daily snapshot of /var/home (S2e) ───────────────────────────
+# Only when /var/home is its own btrfs subvolume (the kickstart's layout, L1). Otherwise
+# the backups read the live files, as before.
 HOME_FS=/var/home
-SNAPDIR="$HOME_FS/.snapshots"                 # hourly, read-only; you can read your own files
-NIGHT_SNAP="$HOME_FS/.cosmic-nightly-source"  # what tonight's backups read
+SNAPDIR="$HOME_FS/.snapshots"     # one read-only snapshot per day; you can read your own files
 HOME_SRC="$UHOME"
 home_is_subvol() {
     [[ "$UHOME" == "$HOME_FS"/* && "$(stat -f -c %T "$HOME_FS" 2>/dev/null)" == btrfs ]] \
         && btrfs subvolume show "$HOME_FS" >/dev/null 2>&1
 }
-hourly_snapshot() {
-    home_is_subvol || return 0
-    if [[ $DRY == 1 ]]; then echo "  [dry-run] hourly snapshot of $HOME_FS"; return 0; fi
-    mkdir -p "$SNAPDIR"; chmod 0755 "$SNAPDIR"
-    local name old keep="${LOCAL_SNAPSHOTS_KEEP:-48}"
-    name="$SNAPDIR/$(date +%F_%H00)"
-    [[ -e "$name" ]] || btrfs subvolume snapshot -r "$HOME_FS" "$name" >/dev/null || return 1
-    find "$SNAPDIR" -mindepth 1 -maxdepth 1 -name '20??-??-??_??00' | sort -r | tail -n +"$((keep + 1))" \
-        | while read -r old; do btrfs subvolume delete "$old" >/dev/null; done
-    return 0
-}
 
-# The hourly catch-up takes the hourly snapshot, then leaves no trace unless a stale copy
-# can be refreshed right now.
+# The hourly catch-up leaves no trace unless a stale copy can be refreshed right now.
 if [[ $MODE == catch-up ]]; then
-    hourly_snapshot || echo "cosmic-nightly: hourly snapshot of $HOME_FS failed" >&2
     want=0
     (( $(age_h local) >= MAX_AGE_H )) && local_reachable && want=1
     (( $(age_h offsite) >= MAX_AGE_H )) && offsite_reachable && want=1
@@ -310,26 +295,27 @@ backup_offsite() {
             rc=1
         fi
     done < <(vm_images)
-    # Pruning needs the admin key and is done by hand (S2b); the nightly key cannot delete.
+    # Pruning needs the admin key, which never lives on the laptop (S2b); the nightly key cannot delete.
     if [[ $MODE == nightly && "$(date +%d)" == 01 ]]; then run restic check --read-data-subset=5% || rc=1; fi
     return $rc
 }
 
-# A read-only snapshot of /var/home, so both copies hold your files as they were at one
-# instant (Syncthing's database, browser profiles and podman volumes change mid-run).
-source_snapshot() {
+# Today's read-only snapshot of /var/home (taken once a day; a catch-up run the same day
+# reuses it), so both copies hold your files as they were at one instant. The last
+# LOCAL_SNAPSHOTS_KEEP (7) stay as the local undo for a week.
+daily_snapshot() {
     HOME_SRC="$UHOME"
     home_is_subvol || { echo "$HOME_FS is not a btrfs subvolume: backing up the live files"; return 99; }
-    if [[ $DRY == 1 ]]; then echo "  [dry-run] snapshot $HOME_FS -> $NIGHT_SNAP"; return 0; fi
-    if [[ -e "$NIGHT_SNAP" ]]; then btrfs subvolume delete "$NIGHT_SNAP" >/dev/null || return 1; fi
-    btrfs subvolume snapshot -r "$HOME_FS" "$NIGHT_SNAP" >/dev/null || return 1
-    HOME_SRC="$NIGHT_SNAP/${UHOME#"$HOME_FS"/}"
+    local snap old keep="${LOCAL_SNAPSHOTS_KEEP:-7}"
+    snap="$SNAPDIR/$(date +%F)"
+    if [[ $DRY == 1 ]]; then echo "  [dry-run] snapshot $HOME_FS -> $snap"; return 0; fi
+    mkdir -p "$SNAPDIR"; chmod 0755 "$SNAPDIR"
+    [[ -e "$snap" ]] || btrfs subvolume snapshot -r "$HOME_FS" "$snap" >/dev/null || return 1
+    HOME_SRC="$snap/${UHOME#"$HOME_FS"/}"
     echo "backing up from $HOME_SRC"
+    find "$SNAPDIR" -mindepth 1 -maxdepth 1 -name '20??-??-??' | sort -r | tail -n +"$((keep + 1))" \
+        | while read -r old; do btrfs subvolume delete "$old" >/dev/null && echo "  dropped snapshot $(basename "$old")"; done
     return 0
-}
-release_snapshot() {
-    [[ $DRY == 1 || ! -e "$NIGHT_SNAP" ]] && return 0
-    btrfs subvolume delete "$NIGHT_SNAP" >/dev/null
 }
 
 # R1: at least one good copy (local or off-site) younger than a day, plus a margin
@@ -368,7 +354,7 @@ drift() {
         for cur in "$STATE"/manifest/boxes/*.pkgs; do
             [[ -e "$cur" ]] || continue
             b=$(basename "$cur" .pkgs); base="$UHOME/.local/state/distrobox/$b.baseline"
-            if [[ "$b" == *.rootful ]]; then echo "${b%.rootful}: rootful, created by hand (no baseline)"; continue; fi
+            if [[ "$b" == *.rootful ]]; then echo "${b%.rootful}: rootful, managed by the image (no baseline)"; continue; fi
             [[ -r "$base" ]] || { echo "$b: no baseline (recreate it from the manifest to start one)"; continue; }
             comm -13 "$base" "$cur" | sed "s/^/$b: + /"
             comm -23 "$base" "$cur" | sed "s/^/$b: - /"
@@ -392,15 +378,15 @@ upgrade_brew() {
 upgrade_boxes() {
     local rc=0
     run as_user distrobox upgrade --all || rc=1          # rootless boxes: dev, claude, rocm
-    if podman container exists vpn 2>/dev/null; then       # rootful box (VPN clients)
-        run distrobox upgrade --root vpn || rc=1
+    if podman container exists net 2>/dev/null; then       # rootful box (VPN clients, network tools)
+        run distrobox upgrade --root net || rc=1
     fi
     return $rc
 }
 # On the 1st: rebuild each rootless box from distrobox.ini, which proves the manifest still
 # builds it and drops what an upgrade or a hand install left behind. A box with packages
-# added by hand, or in use when the job started, is left alone and reported. Never the
-# rootful vpn box (vendor installers, by hand).
+# added outside the manifest, or in use when the job started, is left alone and reported.
+# Never the rootful net box (the image manages it, cosmic-net-box).
 recreate_boxes() {
     [[ "$(date +%d)" == 01 ]] || { echo "only on the 1st of the month"; return 99; }
     local ini="$UHOME/.config/distrobox/distrobox.ini" cur b base added rc=0
@@ -433,10 +419,9 @@ firmware_metadata() { run fwupdmgr refresh --force >/dev/null 2>&1; fwupdmgr get
 # ── run ──────────────────────────────────────────────────────────────
 echo "cosmic-nightly $(date -Is) on $(hostname) (user $U)$([[ $DRY == 1 ]] && echo ', DRY RUN')"
 step "manifest"                     manifest
-step "snapshot of /var/home"        source_snapshot
+step "snapshot of /var/home (S2e)"  daily_snapshot
 step "backup: local snapshot (DAS)" backup_local
 step "backup: off-site (restic)"    backup_offsite
-release_snapshot
 step "restore point (R1)"           restore_point
 if [[ $MODE == catch-up ]]; then
     # No drift report, upgrades or notification: the nightly run does those.

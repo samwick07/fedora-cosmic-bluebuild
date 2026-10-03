@@ -4,9 +4,9 @@ Every file here answers to a row of `docs/end-state.md`; the recipes say where e
 
 | Directory | Lands at | What |
 | --- | --- | --- |
-| `scripts/` | build steps (`script` module) or `/usr/bin`, `/usr/libexec` (`files` module) | build: `install-dod-roots.sh` (V4), `configure-hibernation.sh` (F2), `fix-signing-registry.sh`; shipped: `cosmic-nightly` (J1), `cosmic-acceptance` (L5), `cac-status`, `win11-cac` (V2), `enable-hibernation.sh`, `cosmic-report`, `cosmic-session-wait` (D1), `libvirt-user-groups` (V1); desktop only: `enable-vfio.sh`, `configure-amd-gpu-desktop.sh` |
-| `systemd/` | `/usr/lib/systemd/{system,user}/` | the nightly and catch-up timers, libvirt relabel and group units, flatpak retry drop-ins (N1) |
-| `share/` | `/usr/share/fedora-cosmic-atomic/` | `flatpaks.list` and `drift-ignore.regex` (O1), `nightly.example.env` (template for the private `/etc` settings) |
+| `scripts/` | build steps (`script` module) or `/usr/bin`, `/usr/libexec` (`files` module) | build: `install-dod-roots.sh` (V4), `configure-hibernation.sh` (F2), `fix-signing-registry.sh`; shipped: `cosmic-nightly` (J1), `cosmic-acceptance` (L5), `cosmic-enroll` (P6, P9), `cac-status`, `win11-cac` (V2), `enable-hibernation.sh`, `cosmic-report`, `cosmic-session-wait` (D1), `libvirt-user-groups` (V1), `cosmic-signed-origin` (L1), `cosmic-net-box` (N4); desktop only: `enable-vfio.sh`, `configure-amd-gpu-desktop.sh` |
+| `systemd/` | `/usr/lib/systemd/{system,user}/` | the nightly and catch-up timers, first-boot services (signed origin, hibernation kargs, net box), libvirt relabel and group units, flatpak retry drop-ins (N1) |
+| `share/` | `/usr/share/fedora-cosmic-atomic/` | `flatpaks.list` and `drift-ignore.regex` (O1), `net-box.ini` (N4), `nightly.example.env` (template for the private `/etc` settings) |
 | `lib/` | `/usr/lib/…` | i2c module load + uaccess rule (P11), dracut TPM2 module (P9) |
 | `xdg/` | `/etc/xdg/autostart/` | the nightly report notifier |
 

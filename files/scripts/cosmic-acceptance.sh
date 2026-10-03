@@ -5,13 +5,16 @@
 #
 #   sudo cosmic-acceptance            image-layer checks + the list of manual checks
 #   sudo cosmic-acceptance --user     also the user-layer checks (after chezmoi init --apply)
+#   sudo cosmic-acceptance --pin      when every automatic check passes, pin the booted
+#                                     deployment as known-good (spec L3); the only write
 #
 # PASS / FAIL per check, MANUAL for what a person has to try. Exit 1 if anything failed.
 # The smoke test checks the image as a container in CI; this checks the booted machine.
 set -uo pipefail
 
 [[ $EUID -eq 0 ]] || { echo "run with sudo (reads bootc, btrfs and LUKS state)" >&2; exit 2; }
-USER_LAYER=0; [[ "${1:-}" == --user ]] && USER_LAYER=1
+USER_LAYER=0; PIN=0
+for a in "$@"; do case $a in --user) USER_LAYER=1 ;; --pin) PIN=1 ;; *) echo "usage: cosmic-acceptance [--user] [--pin]" >&2; exit 2 ;; esac; done
 U="${SUDO_USER:-$(getent passwd 1000 | cut -d: -f1)}"
 UHOME=$(getent passwd "$U" | cut -d: -f6)
 FAILED=0
@@ -46,7 +49,7 @@ check P2 "SELinux hibernation module loaded" sh -c 'semodule -l | grep -qx syste
 check P1 "graphical LUKS prompt (rhgb quiet)" sh -c 'grep -qw rhgb /proc/cmdline && grep -qw quiet /proc/cmdline'
 check D1 "login waits for the greeter (cosmic-session-wait ran this boot)" sh -c 'journalctl -b -t cosmic-session-wait -q --no-pager | grep -q .'
 # S2e/R1: home is its own btrfs subvolume
-check S2e "/var/home is a btrfs subvolume (hourly snapshots, consistent backups)" sh -c \
+check S2e "/var/home is a btrfs subvolume (daily snapshot, consistent backups)" sh -c \
     '[ "$(stat -f -c %T /var/home)" = btrfs ] && btrfs subvolume show /var/home >/dev/null'
 # J1/L2: the one updater
 check J1 "nightly job and catch-up timers enabled" enabled cosmic-nightly.timer cosmic-nightly-catchup.timer
@@ -64,6 +67,10 @@ check V1 "virt-manager, virt-viewer, SPICE USB redirection installed" rpm -q vir
 # V3/V4: CAC on the host
 check V4 "DoD roots in the system trust (offline)" sh -c 'n=$(trust list | grep -ci dod); [ "$n" -ge 10 ] || { echo "only $n"; exit 1; }'
 check V3 "pcscd socket enabled" enabled pcscd.socket
+# N4/C1c: the rootful net box the image manages
+check N4 "net box created by cosmic-net-box" sh -c 'podman container exists net || { systemctl status cosmic-net-box --no-pager -n 5; exit 1; }'
+check C1c "nmap, mtr, tcpdump wrappers (run in the net box)" sh -c 'for t in nmap mtr tcpdump; do [ -x /usr/local/bin/$t ] || { echo "missing /usr/local/bin/$t"; exit 1; }; done'
+check L1 "first-boot services succeeded (signed origin, hibernation kargs)" sh -c 'for u in cosmic-signed-origin cosmic-hibernation; do systemctl is-failed --quiet $u && { echo "$u failed"; exit 1; }; done; exit 0'
 # C1: Homebrew unpacked for the user
 check C1 "Homebrew unpacked and owned by $U" sh -c "[ -x /home/linuxbrew/.linuxbrew/bin/brew ] && [ \"\$(stat -c %U /home/linuxbrew/.linuxbrew)\" = '$U' ]"
 # P9/P6 preconditions
@@ -84,15 +91,22 @@ manual P1  "cold boot x3: LUKS prompt, then the COSMIC greeter"
 manual P2  "systemctl hibernate -> resume; lid closed 5 min -> hibernates; 10 suspend-then-hibernate cycles, note the drain"
 manual P3  "lid close/open: suspend and resume; Bluetooth reconnects"
 manual P4  "Wi-Fi, Bluetooth, audio, webcam, USB-C display"
-manual P6  "fprintd-enroll; sudo and the COSMIC lock screen accept the finger"
-manual P9  "after systemd-cryptenroll --tpm2-with-pin: boot and resume ask for the PIN; the passphrase still works"
+manual P6  "sudo cosmic-enroll (finger, passphrase, PIN); sudo and the COSMIC lock screen accept the finger"
+manual P9  "after cosmic-enroll and a reboot: boot and resume ask for the PIN; the passphrase still works"
 manual P10 "a test page prints"
 manual D1  "10 logins without a black screen"
-manual V2  "SPICE-redirect the CAC reader into the VM -> certutil -scinfo -> the Windows app signs in; also win11-cac attach/detach"
+manual V2  "sudo win11-cac attach -> certutil -scinfo -> the Windows app signs in -> detach; then the same with SPICE redirect"
 manual V3  "PIN prompt and login on a DoD site in Chrome (dev) and in Firefox"
 manual N4  "VPN trial: each method connects; routes and DNS from host, dev and a podman container"
 manual S2  "after a night: the report shows a backup < 26 h old; restore one file from the DAS and one from B2"
-manual L3  "after acceptance: sudo ostree admin pin 0 (keep this deployment as known-good)"
+manual L3  "after every check passed: sudo cosmic-acceptance --pin (keeps this deployment as known-good)"
 
 echo
-if [[ $FAILED == 0 ]]; then echo "== automatic checks PASSED — now the manual ones"; else echo "== automatic checks FAILED"; exit 1; fi
+if [[ $FAILED != 0 ]]; then echo "== automatic checks FAILED"; [[ $PIN == 1 ]] && echo "   not pinned"; exit 1; fi
+echo "== automatic checks PASSED — now the manual ones"
+if [[ $PIN == 1 ]]; then
+    # ostree admin pin takes the index shown by `ostree admin status`; find the booted one.
+    idx=$(ostree admin status | awk '/^[* ] +[^ ]+ [0-9a-f]{64}\.[0-9]+/ {if ($1=="*") {print n+0; exit} n++}')
+    [[ -n "$idx" ]] || { echo "could not find the booted deployment"; exit 1; }
+    ostree admin pin "$idx" && echo "== pinned deployment $idx (the booted one) as known-good"
+fi

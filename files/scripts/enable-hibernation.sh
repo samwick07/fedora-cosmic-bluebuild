@@ -12,6 +12,7 @@
 # know, not paper over it.
 #
 # Usage: sudo enable-hibernation.sh [--check]
+# Runs at every boot as cosmic-hibernation.service (frmwrk image); by hand only to look.
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "ERROR: run with sudo" >&2; exit 1; }
 CHECK_ONLY=0; [[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
@@ -35,7 +36,9 @@ ok "swap partition $SWAP_DEV (UUID $SWAP_UUID, $(swapon --show=SIZE --noheadings
 
 # 2. LUKS underneath the swap must be unlocked in the initramfs
 SWAP_LUKS_UUID=""
-parent=$(lsblk -no PKNAME "$SWAP_DEV" | head -1)
+# The swap is a dm-crypt mapping; its LUKS partition is the "part" it sits on. (lsblk's
+# PKNAME is empty for dm devices, so walk the dependencies with -s instead.)
+parent=$(lsblk -lnso NAME,TYPE "$SWAP_DEV" | awk '$2=="part"{print $1; exit}')
 if [[ -n "$parent" && $(blkid -s TYPE -o value "/dev/$parent") == crypto_LUKS ]]; then
     SWAP_LUKS_UUID=$(blkid -s UUID -o value "/dev/$parent")
     if grep -q "rd.luks.uuid=$SWAP_LUKS_UUID\|rd.luks.uuid=luks-$SWAP_LUKS_UUID" /proc/cmdline; then

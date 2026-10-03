@@ -1,0 +1,12 @@
+[Unit]
+Description=Complete the per-install half of hibernation: resume= and rd.luks.uuid (spec F2, L1)
+# Anaconda writes the swap's crypttab/fstab; the kernel arguments may be missing. Adds them
+# (staged; the next reboot applies them) and does nothing once they are right.
+After=local-fs.target swap.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/enable-hibernation.sh
+
+[Install]
+WantedBy=multi-user.target
