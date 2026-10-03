@@ -146,9 +146,13 @@ import_p7b_to_nss() {
 }
 
 add_opensc_module() {  # nss db dir
-    if modutil -dbdir sql:"$1" -list 2>/dev/null | grep -qi "OpenSC\|CAC Card"; then
+    # </dev/null + timeout: modutil hung here on the first real run (test drive,
+    # 2026-10-03, step 6 via chezmoi). Loading OpenSC makes it talk to pcscd, and
+    # that wait is unbounded. Bound it: a hang degrades to the p11-kit fallback
+    # below instead of blocking the whole chezmoi apply. Cause still open.
+    if timeout 60 modutil -dbdir sql:"$1" -list </dev/null 2>/dev/null | grep -qi "OpenSC\|CAC Card"; then
         echo "     OpenSC module already loaded"
-    elif modutil -dbdir sql:"$1" -add "CAC Card" -libfile "${OPENSC_LIB}" -force >/dev/null 2>&1; then
+    elif timeout 60 modutil -dbdir sql:"$1" -add "CAC Card" -libfile "${OPENSC_LIB}" -force </dev/null >/dev/null 2>&1; then
         echo "     OpenSC PKCS#11 module added"
     else
         echo "     (could not add OpenSC module — p11-kit proxy may already provide it)"

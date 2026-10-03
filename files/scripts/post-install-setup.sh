@@ -60,8 +60,10 @@ warn()   { echo -e "  \033[0;33m!\033[0m $*"; }
 fail()   { echo -e "  \033[0;31m✗\033[0m $*"; }
 
 uid() { id -u "${TARGET_USER}"; }
+# env -u SUDO_*: sudo -u sets SUDO_USER=root, and distrobox-assemble (and other
+# tools) refuse to run when they see it, even though they run as the user.
 run_as_user() {
-    sudo -u "${TARGET_USER}" HOME="${USER_HOME}" \
+    sudo -u "${TARGET_USER}" env -u SUDO_USER -u SUDO_UID -u SUDO_GID -u SUDO_COMMAND -u SUDO_HOME HOME="${USER_HOME}" \
         XDG_RUNTIME_DIR="/run/user/$(uid)" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(uid)/bus" "$@"
 }
 restic_root() { RESTIC_REPOSITORY="${RESTIC_REPO}" RESTIC_PASSWORD_FILE="${RESTIC_PASSFILE}" restic "$@"; }
@@ -242,7 +244,13 @@ step5_vms() {
     systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.socket virtnodedevd.socket virtsecretd.socket virtinterfaced.socket
     id -nG "${TARGET_USER}" | grep -qw libvirt || { usermod -aG libvirt "${TARGET_USER}"; ok "added ${TARGET_USER} to libvirt (re-login)"; }
 
-    [[ -n "$(ls -A /etc/libvirt/qemu 2>/dev/null)" ]] || { restic_restore "/etc/libvirt/"; ok "/etc/libvirt restored"; }
+    # Only the domain XML. A fresh image already has its own /etc/libvirt
+    # (qemu/networks/default.xml), so an "is it empty?" test never fired, and the
+    # Workstation's whole /etc/libvirt should not land on the new image anyway.
+    if [[ ! -f /etc/libvirt/qemu/Win11VM.xml ]]; then
+        restic_restore "/etc/libvirt/qemu/Win11VM.xml" >/dev/null 2>&1 || true
+        [[ -f /etc/libvirt/qemu/Win11VM.xml ]] && ok "Win11VM.xml restored" || warn "no Win11VM.xml in the backup"
+    fi
     if [[ ! -f /var/lib/libvirt/vm-images/Win11VM.qcow2 ]]; then
         echo "  Restoring Win11VM.qcow2 (~512 GB, slow)..."
         restic_restore "/var/lib/libvirt/vm-images/"; ok "VM disk restored"
@@ -256,13 +264,21 @@ step5_vms() {
     $V net-start default 2>/dev/null || true; $V net-autostart default 2>/dev/null || true
     if $V list --all 2>/dev/null | grep -q Win11VM; then skip "Win11VM registered"
     elif [[ -f /etc/libvirt/qemu/Win11VM.xml ]]; then $V define /etc/libvirt/qemu/Win11VM.xml; ok "Win11VM defined"
-    else fail "Win11VM.xml missing — run scripts/reregister-win11vm.sh from the repo"; fi
-    mark_step_done "step5"
+    else fail "Win11VM.xml missing — run scripts/reregister-win11vm.sh from the repo, then --step 5 again"; fi
+    # "done" only once the VM is defined, so a rerun of all steps does not skip a
+    # half-finished step 5 (first test run: marked done with no VM, 2026-10-03).
+    # Not a hard failure: steps 6-7 do not depend on the VM.
+    $V list --all 2>/dev/null | grep -q Win11VM && mark_step_done "step5"
+    return 0
 }
 
 # ─── Step 6: user layer via chezmoi ──────────────────────────────────
 step6_chezmoi() {
     log "Step 6: chezmoi init --apply ${DOTFILES_REPO}"
+    # Homebrew's installer wants sudo only to create /home/linuxbrew. Run from
+    # here (sudo -u, no ticket, NONINTERACTIVE) it cannot get it and aborts with
+    # "Insufficient permissions". Create the prefix for the user up front.
+    install -d -o "${TARGET_USER}" -g "${TARGET_USER}" -m 0755 /home/linuxbrew
     if [[ -d "${USER_HOME}/.local/share/chezmoi/.git" ]]; then
         skip "chezmoi already initialised — running 'chezmoi apply' instead"
         run_as_user chezmoi apply

@@ -56,13 +56,15 @@ else
          (/var/lib/libvirt/qemu/nvram/Win11VM_VARS.fd, in the restic backup) stays
          valid. If Fedora drops the .fd files, switch BOTH lines to the 4M qcow2
          variants and convert the NVRAM: qemu-img convert -f raw -O qcow2 ... -->
-    <loader readonly='yes' type='pflash'>/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd</loader>
+    <loader readonly='yes' secure='yes' type='pflash'>/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd</loader>
     <nvram template='/usr/share/edk2/ovmf/OVMF_VARS.secboot.fd'>/var/lib/libvirt/qemu/nvram/Win11VM_VARS.fd</nvram>
     <boot dev='hd'/>
   </os>
   <features>
     <acpi/>
     <apic/>
+    <!-- OVMF_CODE.secboot is built with SMM_REQUIRE: without SMM it never boots. -->
+    <smm state='on'/>
   </features>
   <cpu mode='host-passthrough' check='none' migratable='on'>
     <topology sockets='1' dies='1' cores='4' threads='2'/>
@@ -129,6 +131,15 @@ else
 </domain>
 VMXML
 
+    # swtpm state lives in /var/lib/libvirt/swtpm/<domain UUID>/. Reuse the
+    # restored UUID so Windows sees the same TPM (no BitLocker recovery prompt).
+    mapfile -t tpm_ids < <(ls /var/lib/libvirt/swtpm 2>/dev/null)
+    if [[ ${#tpm_ids[@]} -eq 1 ]]; then
+        sed -i "s|<name>Win11VM</name>|<name>Win11VM</name>\n  <uuid>${tpm_ids[0]}</uuid>|" /tmp/Win11VM.xml
+        echo "  Reusing UUID ${tpm_ids[0]} (restored swtpm state)."
+    else
+        echo "  !! ${#tpm_ids[@]} entries in /var/lib/libvirt/swtpm — new UUID, so a NEW TPM (BitLocker may ask for its recovery key)."
+    fi
     virsh define /tmp/Win11VM.xml
     rm /tmp/Win11VM.xml
     echo "  Win11VM defined."

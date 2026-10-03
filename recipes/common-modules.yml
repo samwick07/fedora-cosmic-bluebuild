@@ -196,6 +196,11 @@ modules:
         destination: /usr/share/distrobox/distrobox.ini
       - source: systemd/bootc-fetch-apply-updates.service.d/10-stage-only.conf
         destination: /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/10-stage-only.conf
+      # default-flatpaks: retry its first-boot units until the network is there
+      - source: systemd/system-flatpak-setup.service.d/20-retry.conf
+        destination: /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf
+      - source: systemd/user-flatpak-setup.service.d/20-retry.conf
+        destination: /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf
 
   # git does not reliably preserve the executable bit through the build context.
   - type: script@v2
@@ -203,7 +208,7 @@ modules:
       - "chmod 0755 /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report /usr/bin/cosmic-session-wait"
       # The files module keeps the checkout's modes; with umask 077 these land 0600
       # and the user session / shells / distrobox assemble cannot read them.
-      - "chmod 0644 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/10-stage-only.conf /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt"
+      - "chmod 0644 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/10-stage-only.conf /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt"
 
   # ─────────────────────────────────────────────
   # LOGIN: wait for the greeter to release the GPU
