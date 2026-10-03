@@ -24,9 +24,9 @@
 #
 #   cosmic-nightly             run all steps (root)
 #   cosmic-nightly --dry-run   print what would run, change nothing
-#   cosmic-nightly --catch-up  only the manifest and the backups, and only when the last
-#                              good copy is older than 24 h and its target is reachable
-#                              (hourly timer; keeps the restore point within a day, R1)
+#   cosmic-nightly --catch-up  hourly: a read-only snapshot of /var/home (S2e); then the
+#                              manifest and the backups, only when the last good copy is
+#                              older than 24 h and its target is reachable (R1)
 #
 set -uo pipefail
 
@@ -65,8 +65,33 @@ mark_ok() { [[ $DRY == 1 ]] || date +%s > "$STATE/last-$1"; }
 local_reachable()   { [[ -n "${LOCAL_SNAPSHOT_DIR:-}" && -d "${LOCAL_SNAPSHOT_DIR}" ]]; }
 offsite_reachable() { [[ -n "${RESTIC_REPOSITORY:-}" ]] && nm-online -q -t 30; }
 
-# The hourly catch-up leaves no trace unless a stale copy can be refreshed right now.
+# ── btrfs snapshots of /var/home (S2e; consistency of S2a/S2b) ──────
+# Only when /var/home is its own btrfs subvolume (the default Fedora Atomic layout;
+# checked at install). Otherwise the backups read the live files, as before.
+HOME_FS=/var/home
+SNAPDIR="$HOME_FS/.snapshots"                 # hourly, read-only; you can read your own files
+NIGHT_SNAP="$HOME_FS/.cosmic-nightly-source"  # what tonight's backups read
+HOME_SRC="$UHOME"
+home_is_subvol() {
+    [[ "$UHOME" == "$HOME_FS"/* && "$(stat -f -c %T "$HOME_FS" 2>/dev/null)" == btrfs ]] \
+        && btrfs subvolume show "$HOME_FS" >/dev/null 2>&1
+}
+hourly_snapshot() {
+    home_is_subvol || return 0
+    if [[ $DRY == 1 ]]; then echo "  [dry-run] hourly snapshot of $HOME_FS"; return 0; fi
+    mkdir -p "$SNAPDIR"; chmod 0755 "$SNAPDIR"
+    local name old keep="${LOCAL_SNAPSHOTS_KEEP:-48}"
+    name="$SNAPDIR/$(date +%F_%H00)"
+    [[ -e "$name" ]] || btrfs subvolume snapshot -r "$HOME_FS" "$name" >/dev/null || return 1
+    find "$SNAPDIR" -mindepth 1 -maxdepth 1 -name '20??-??-??_??00' | sort -r | tail -n +"$((keep + 1))" \
+        | while read -r old; do btrfs subvolume delete "$old" >/dev/null; done
+    return 0
+}
+
+# The hourly catch-up takes the hourly snapshot, then leaves no trace unless a stale copy
+# can be refreshed right now.
 if [[ $MODE == catch-up ]]; then
+    hourly_snapshot || echo "cosmic-nightly: hourly snapshot of $HOME_FS failed" >&2
     want=0
     (( $(age_h local) >= MAX_AGE_H )) && local_reachable && want=1
     (( $(age_h offsite) >= MAX_AGE_H )) && offsite_reachable && want=1
@@ -157,6 +182,7 @@ vm_in_use() {  # is this disk attached to a running VM?
 # Plain text under $STATE/manifest, which the backups below include (it is in /var).
 # With it, a rebuild can return to yesterday's image digest, kargs, layered packages,
 # enabled units, flatpaks and box contents, not only to the declared state.
+BOXES_IN_USE=""
 PKGS_CMD='if command -v rpm >/dev/null 2>&1; then rpm -qa --qf "%{NAME}\n"; else dpkg-query -W -f "\${Package}\n"; fi | sort'
 manifest() {
     local m="$STATE/manifest" n
@@ -179,6 +205,7 @@ manifest() {
     # The packages in every box (rootless, then rootful), so a box rebuilt from its
     # definition can be brought back to yesterday's set.
     rm -f "$m"/boxes/*.pkgs
+    BOXES_IN_USE=$(as_user podman ps --filter label=manager=distrobox --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')
     while read -r n; do
         [[ -n "$n" ]] || continue
         as_user podman start "$n" >/dev/null 2>&1
@@ -213,7 +240,7 @@ backup_local() {
     # $HOME, all of /etc, and /var state (S2d). /var stays on its own file system (-x)
     # and skips what is backed up elsewhere or rebuilt.
     local vx=(); for t in $VAR_SKIP_TOP; do vx+=(--exclude="/$t/"); done
-    run "${rs[@]}" ${prev:+--link-dest="$prev/home"} --exclude-from=<(home_excludes) "$UHOME/" "$partial/home/" || rc=1
+    run "${rs[@]}" ${prev:+--link-dest="$prev/home"} --exclude-from=<(home_excludes) "$HOME_SRC/" "$partial/home/" || rc=1
     run "${rs[@]}" ${prev:+--link-dest="$prev/etc"} /etc/ "$partial/etc/" || rc=1
     run "${rs[@]}" -x ${prev:+--link-dest="$prev/var"} "${vx[@]}" --exclude-from=<(var_excludes) /var/ "$partial/var/" || rc=1
     if [[ $rc != 0 ]]; then
@@ -261,8 +288,13 @@ backup_offsite() {
     export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE B2_ACCOUNT_ID B2_ACCOUNT_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY 2>/dev/null
     local rc=0 vp img name stamp
     mapfile -t vp < <(var_paths)
+    # Reading from the snapshot, restic must still record $UHOME (restores, parent
+    # snapshots): bind the snapshot over it in a private mount namespace for this run only.
+    local ns=()
+    # shellcheck disable=SC2016
+    [[ "$HOME_SRC" != "$UHOME" ]] && ns=(unshare --mount --propagation private bash -c 'mount --bind "$1" "$2" && shift 2 && exec "$@"' _ "$HOME_SRC" "$UHOME")
     # Same scope as the local copy: $HOME, all of /etc, /var state (S2d).
-    run restic backup --host "$(hostname)" --tag nightly --one-file-system --exclude-caches \
+    run "${ns[@]}" restic backup --host "$(hostname)" --tag nightly --one-file-system --exclude-caches \
         --exclude-file=<( { home_excludes | sed -e "s|^/|$UHOME/|"; var_excludes | sed -e 's|^/|/var/|'; } | sed 's|/$||') \
         "$UHOME" /etc "${vp[@]}" || rc=1
     [[ $rc == 0 ]] && mark_ok offsite
@@ -281,6 +313,23 @@ backup_offsite() {
     # Pruning needs the admin key and is done by hand (S2b); the nightly key cannot delete.
     if [[ $MODE == nightly && "$(date +%d)" == 01 ]]; then run restic check --read-data-subset=5% || rc=1; fi
     return $rc
+}
+
+# A read-only snapshot of /var/home, so both copies hold your files as they were at one
+# instant (Syncthing's database, browser profiles and podman volumes change mid-run).
+source_snapshot() {
+    HOME_SRC="$UHOME"
+    home_is_subvol || { echo "$HOME_FS is not a btrfs subvolume: backing up the live files"; return 99; }
+    if [[ $DRY == 1 ]]; then echo "  [dry-run] snapshot $HOME_FS -> $NIGHT_SNAP"; return 0; fi
+    if [[ -e "$NIGHT_SNAP" ]]; then btrfs subvolume delete "$NIGHT_SNAP" >/dev/null || return 1; fi
+    btrfs subvolume snapshot -r "$HOME_FS" "$NIGHT_SNAP" >/dev/null || return 1
+    HOME_SRC="$NIGHT_SNAP/${UHOME#"$HOME_FS"/}"
+    echo "backing up from $HOME_SRC"
+    return 0
+}
+release_snapshot() {
+    [[ $DRY == 1 || ! -e "$NIGHT_SNAP" ]] && return 0
+    btrfs subvolume delete "$NIGHT_SNAP" >/dev/null
 }
 
 # R1: at least one good copy (local or off-site) younger than a day, plus a margin
@@ -314,6 +363,16 @@ drift() {
             echo "-- Homebrew: installed but not in ~/.Brewfile"
             as_user "$BREW" bundle cleanup --file="$UHOME/.Brewfile" 2>&1 | grep -vE "^(Would|Run \`brew bundle cleanup)" || true
         fi
+        echo "-- boxes: packages added (+) or removed (-) since the box was created from its manifest"
+        local cur b base
+        for cur in "$STATE"/manifest/boxes/*.pkgs; do
+            [[ -e "$cur" ]] || continue
+            b=$(basename "$cur" .pkgs); base="$UHOME/.local/state/distrobox/$b.baseline"
+            if [[ "$b" == *.rootful ]]; then echo "${b%.rootful}: rootful, created by hand (no baseline)"; continue; fi
+            [[ -r "$base" ]] || { echo "$b: no baseline (recreate it from the manifest to start one)"; continue; }
+            comm -13 "$base" "$cur" | sed "s/^/$b: + /"
+            comm -23 "$base" "$cur" | sed "s/^/$b: - /"
+        done
         echo "-- dotfiles not in their declared state (chezmoi status)"
         as_user sh -c 'command -v chezmoi >/dev/null && chezmoi status || echo "(chezmoi not installed)"' 2>&1
     } > "$out"
@@ -338,14 +397,46 @@ upgrade_boxes() {
     fi
     return $rc
 }
+# On the 1st: rebuild each rootless box from distrobox.ini, which proves the manifest still
+# builds it and drops what an upgrade or a hand install left behind. A box with packages
+# added by hand, or in use when the job started, is left alone and reported. Never the
+# rootful vpn box (vendor installers, by hand).
+recreate_boxes() {
+    [[ "$(date +%d)" == 01 ]] || { echo "only on the 1st of the month"; return 99; }
+    local ini="$UHOME/.config/distrobox/distrobox.ini" cur b base added rc=0
+    [[ -r "$ini" ]] || { echo "no $ini"; return 99; }
+    for cur in "$STATE"/manifest/boxes/*.pkgs; do
+        [[ -e "$cur" ]] || continue
+        b=$(basename "$cur" .pkgs)
+        [[ "$b" == *.rootful ]] && continue
+        grep -q "^\[$b\]" "$ini" || continue
+        [[ " $BOXES_IN_USE " == *" $b "* ]] && { echo "  $b: was running when the job started — not recreated"; continue; }
+        base="$UHOME/.local/state/distrobox/$b.baseline"
+        if [[ -r "$base" ]]; then added=$(comm -13 "$base" "$cur" | wc -l); else added="?"; fi
+        if [[ "$added" != 0 ]]; then
+            echo "  $b: $added package(s) not from the manifest — not recreated; declare them in distrobox.ini or remove them"
+            continue
+        fi
+        echo "  $b: recreating from $ini"
+        run as_user distrobox assemble create --replace --file "$ini" --name "$b" || { rc=1; continue; }
+        if [[ $DRY != 1 ]]; then
+            as_user podman start "$b" >/dev/null 2>&1
+            as_user podman exec "$b" sh -c "$PKGS_CMD" > "$base.new" 2>/dev/null && chown "$U:" "$base.new" && mv "$base.new" "$base"
+        fi
+    done
+    return $rc
+}
+
 # Metadata only; firmware is never installed by this job (fwupdmgr update is a manual step).
 firmware_metadata() { run fwupdmgr refresh --force >/dev/null 2>&1; fwupdmgr get-updates 2>/dev/null | head -20 || true; return 0; }
 
 # ── run ──────────────────────────────────────────────────────────────
 echo "cosmic-nightly $(date -Is) on $(hostname) (user $U)$([[ $DRY == 1 ]] && echo ', DRY RUN')"
 step "manifest"                     manifest
+step "snapshot of /var/home"        source_snapshot
 step "backup: local snapshot (DAS)" backup_local
 step "backup: off-site (restic)"    backup_offsite
+release_snapshot
 step "restore point (R1)"           restore_point
 if [[ $MODE == catch-up ]]; then
     # No drift report, upgrades or notification: the nightly run does those.
@@ -358,6 +449,7 @@ step "upgrade: image (staged)"      upgrade_image
 step "upgrade: flatpaks"            upgrade_flatpaks
 step "upgrade: Homebrew (as $U)"    upgrade_brew
 step "upgrade: distroboxes"         upgrade_boxes
+step "boxes: monthly rebuild"       recreate_boxes
 step "firmware: metadata"           firmware_metadata
 
 # ── 4. report ────────────────────────────────────────────────────────
