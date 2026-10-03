@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly check for a missed backup (spec R1)
+
+[Timer]
+# The nightly run normally keeps both copies fresh; this only acts when a night was
+# missed (offline, DAS not attached) and the target is reachable later in the day.
+OnBootSec=15min
+OnCalendar=hourly
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

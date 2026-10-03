@@ -4,8 +4,11 @@
 # /usr/bin/cosmic-nightly, run by cosmic-nightly.timer (~04:30, Persistent=true:
 # a night missed in sleep or hibernation runs at the next wake).
 #
+#   0. manifest what this machine is right now: image digest, kargs, layered packages,
+#               enabled units, flatpaks, the packages in every box (R1)
 #   1. backup   local plain-file snapshots on the DAS (S2a, only when it is mounted)
-#               + restic to the off-site repository (S2b, only when online)
+#               + restic to the off-site repository (S2b, only when online);
+#               scope: $HOME, all of /etc, /var state, VM disks (S2d)
 #   2. drift    what is on the machine that the image and the dotfiles do not declare (O1)
 #   3. upgrade  bootc upgrade (STAGED: never --apply), flatpaks, distroboxes,
 #               firmware metadata (never firmware itself)
@@ -19,8 +22,11 @@
 # migration; template /usr/share/fedora-cosmic-atomic/nightly.example.env). Without it,
 # only the drift report and the upgrades run.
 #
-#   cosmic-nightly            run all steps (root)
-#   cosmic-nightly --dry-run  print what would run, change nothing
+#   cosmic-nightly             run all steps (root)
+#   cosmic-nightly --dry-run   print what would run, change nothing
+#   cosmic-nightly --catch-up  only the manifest and the backups, and only when the last
+#                              good copy is older than 24 h and its target is reachable
+#                              (hourly timer; keeps the restore point within a day, R1)
 #
 set -uo pipefail
 
@@ -28,7 +34,14 @@ CONF="${NIGHTLY_CONF:-/etc/fedora-cosmic-atomic/nightly.env}"
 SHARE=/usr/share/fedora-cosmic-atomic
 STATE=/var/lib/cosmic-nightly
 LOGDIR=/var/log/cosmic-nightly
-DRY=0; [[ "${1:-}" == --dry-run ]] && DRY=1
+DRY=0; MODE=nightly
+for a in "$@"; do
+    case $a in
+        --dry-run)  DRY=1 ;;
+        --catch-up) MODE=catch-up ;;
+        *) echo "usage: cosmic-nightly [--dry-run] [--catch-up]" >&2; exit 2 ;;
+    esac
+done
 
 [[ $EUID -eq 0 ]] || { echo "cosmic-nightly: run as root (it is a system service)" >&2; exit 1; }
 # shellcheck disable=SC1090
@@ -38,6 +51,28 @@ UID_U=$(id -u "$U" 2>/dev/null) || { echo "cosmic-nightly: user '$U' not found" 
 UHOME=$(realpath "$(getent passwd "$U" | cut -d: -f6)")
 
 mkdir -p "$STATE" "$LOGDIR"; chmod 0755 "$STATE"
+# One run at a time (the nightly run and the hourly catch-up share the targets).
+exec 9>/run/cosmic-nightly.lock
+flock -n 9 || { echo "cosmic-nightly: another run is in progress"; exit 0; }
+
+# R1: a good copy older than this many hours is stale.
+MAX_AGE_H="${BACKUP_MAX_AGE_H:-24}"
+age_h() {  # hours since the last good backup to target $1 (local | offsite); 9999 = never
+    local f="$STATE/last-$1"
+    if [[ -r "$f" ]]; then echo $(( ($(date +%s) - $(cat "$f")) / 3600 )); else echo 9999; fi
+}
+mark_ok() { [[ $DRY == 1 ]] || date +%s > "$STATE/last-$1"; }
+local_reachable()   { [[ -n "${LOCAL_SNAPSHOT_DIR:-}" && -d "${LOCAL_SNAPSHOT_DIR}" ]]; }
+offsite_reachable() { [[ -n "${RESTIC_REPOSITORY:-}" ]] && nm-online -q -t 30; }
+
+# The hourly catch-up leaves no trace unless a stale copy can be refreshed right now.
+if [[ $MODE == catch-up ]]; then
+    want=0
+    (( $(age_h local) >= MAX_AGE_H )) && local_reachable && want=1
+    (( $(age_h offsite) >= MAX_AGE_H )) && offsite_reachable && want=1
+    [[ $want == 1 ]] || exit 0
+fi
+
 LOG="$LOGDIR/$(date +%F).log"
 exec > >(tee -a "$LOG") 2>&1
 SUMMARY=()
@@ -75,50 +110,121 @@ EOF
 }
 VM_DIRS="${VM_IMAGE_DIRS:-/var/lib/libvirt/images /var/lib/libvirt/vm-images}"
 
+# /var: everything except what is backed up elsewhere ($HOME = /var/home/<user>; VM disks)
+# or rebuilt or disposable (caches, temp, logs, installed flatpaks, container image layers).
+# Paths relative to /var. The top-level ones are left out of the restic paths instead of
+# excluded, so an exclude can never match the explicit $HOME path.
+VAR_SKIP_TOP="home cache tmp log"
+var_excludes() {
+    cat <<'EOF'
+/lib/flatpak/
+/lib/containers/storage/overlay/
+/lib/containers/storage/overlay-images/
+/lib/containers/storage/overlay-layers/
+/lib/systemd/coredump/
+/roothome/.cache/
+EOF
+    local d; for d in $VM_DIRS; do echo "/${d#/var/}/"; done
+}
+var_paths() {  # restic paths for /var: its top-level entries minus VAR_SKIP_TOP
+    local p
+    for p in /var/* /var/.[!.]*; do
+        [[ -e "$p" || -L "$p" ]] || continue
+        [[ " $VAR_SKIP_TOP " == *" ${p#/var/} "* ]] && continue
+        echo "$p"
+    done
+}
+vm_images() {
+    local d img
+    for d in $VM_DIRS; do for img in "$d"/*.qcow2 "$d"/*.img; do [[ -f "$img" ]] && echo "$img"; done; done
+    return 0
+}
+vm_in_use() {  # is this disk attached to a running VM?
+    local img="$1" vm
+    while read -r vm; do
+        [[ -n "$vm" ]] && virsh -c qemu:///system domblklist "$vm" --details 2>/dev/null | grep -qF "$img" && return 0
+    done < <(virsh -c qemu:///system list --name 2>/dev/null)
+    return 1
+}
+
+# ── 0. manifest (R1) ─────────────────────────────────────────────────
+# Plain text under $STATE/manifest, which the backups below include (it is in /var).
+# With it, a rebuild can return to yesterday's image digest, kargs, layered packages,
+# enabled units, flatpaks and box contents, not only to the declared state.
+PKGS_CMD='if command -v rpm >/dev/null 2>&1; then rpm -qa --qf "%{NAME}\n"; else dpkg-query -W -f "\${Package}\n"; fi | sort'
+manifest() {
+    local m="$STATE/manifest" n
+    if [[ $DRY == 1 ]]; then echo "  [dry-run] write $m"; return 0; fi
+    mkdir -p "$m/boxes"; chmod 0700 "$m"
+    { bootc status --format=json 2>/dev/null || bootc status --json 2>/dev/null; } > "$m/bootc-status.json"
+    rpm-ostree status -v      > "$m/rpm-ostree-status.txt" 2>&1
+    cat /proc/cmdline         > "$m/kernel-cmdline.txt"
+    ostree admin config-diff  > "$m/etc-config-diff.txt" 2>&1
+    systemctl list-unit-files --state=enabled --no-legend > "$m/units-system.txt" 2>&1
+    as_user systemctl --user list-unit-files --state=enabled --no-legend > "$m/units-user.txt" 2>&1
+    flatpak remotes --system --columns=name,url > "$m/flatpak-remotes.txt" 2>&1
+    flatpak list --system --app --columns=application,origin,branch,active > "$m/flatpaks-system.txt" 2>&1
+    as_user flatpak list --user --app --columns=application,origin,branch,active > "$m/flatpaks-user.txt" 2>&1
+    lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS > "$m/disks.txt" 2>&1
+    # The packages in every box (rootless, then rootful), so a box rebuilt from its
+    # definition can be brought back to yesterday's set.
+    rm -f "$m"/boxes/*.pkgs
+    while read -r n; do
+        [[ -n "$n" ]] || continue
+        as_user podman start "$n" >/dev/null 2>&1
+        as_user podman exec "$n" sh -c "$PKGS_CMD" > "$m/boxes/$n.pkgs" 2>&1
+    done < <(as_user podman ps -a --filter label=manager=distrobox --format '{{.Names}}' 2>/dev/null)
+    while read -r n; do
+        [[ -n "$n" ]] || continue
+        podman start "$n" >/dev/null 2>&1
+        podman exec "$n" sh -c "$PKGS_CMD" > "$m/boxes/$n.rootful.pkgs" 2>&1
+    done < <(podman ps -a --filter label=manager=distrobox --format '{{.Names}}' 2>/dev/null)
+    echo "manifest written: $(find "$m" -type f | wc -l) files in $m"
+    return 0
+}
+
 backup_local() {
     local dest="${LOCAL_SNAPSHOT_DIR:-}"
     [[ -n "$dest" ]] || { echo "no LOCAL_SNAPSHOT_DIR in $CONF"; return 99; }
     [[ -d "$dest" ]] || { echo "$dest not present (DAS not attached or not unlocked)"; return 99; }
+    if [[ $MODE == catch-up ]] && (( $(age_h local) < MAX_AGE_H )); then echo "last good copy $(age_h local) h ago"; return 99; fi
     # Built in a .partial folder and renamed only when every copy succeeded; old
     # snapshots are pruned only after that, so a failed night never costs a good one.
-    local today; today="$dest/$(date +%F)"
-    local partial="$dest/.partial-$(date +%F)"
-    local prev; prev=$(find "$dest" -mindepth 1 -maxdepth 1 -type d -name '20??-??-??' | sort | tail -1)
+    local today partial prev
+    today="$dest/$(date +%F)"
+    partial="$dest/.partial-$(date +%F)"
+    prev=$(find "$dest" -mindepth 1 -maxdepth 1 -type d -name '20??-??-??' | sort | tail -1)
     # -A/-X keep ACLs and xattrs (SELinux labels); a target without them (some NAS) sets RSYNC_FLAGS=-aH
-    local rs=(rsync ${RSYNC_FLAGS:--aHAX} --numeric-ids --delete --delete-excluded)
-    local rc=0 d
+    local flags; read -r -a flags <<< "${RSYNC_FLAGS:--aHAX}"
+    local rs=(rsync "${flags[@]}" --numeric-ids --delete --delete-excluded)
+    local rc=0 t
     run rm -rf "$dest"/.partial-*                          # leftovers of a failed night
     run mkdir -p "$partial"
-    # $HOME, the libvirt definitions, and libvirt state except the disk images
+    # $HOME, all of /etc, and /var state (S2d). /var stays on its own file system (-x)
+    # and skips what is backed up elsewhere or rebuilt.
+    local vx=(); for t in $VAR_SKIP_TOP; do vx+=(--exclude="/$t/"); done
     run "${rs[@]}" ${prev:+--link-dest="$prev/home"} --exclude-from=<(home_excludes) "$UHOME/" "$partial/home/" || rc=1
-    run "${rs[@]}" ${prev:+--link-dest="$prev/etc-libvirt"} /etc/libvirt/ "$partial/etc-libvirt/" || rc=1
-    local ex=(); for d in $VM_DIRS; do ex+=(--exclude="/${d#/var/lib/libvirt/}/"); done
-    run "${rs[@]}" ${prev:+--link-dest="$prev/var-lib-libvirt"} "${ex[@]}" /var/lib/libvirt/ "$partial/var-lib-libvirt/" || rc=1
+    run "${rs[@]}" ${prev:+--link-dest="$prev/etc"} /etc/ "$partial/etc/" || rc=1
+    run "${rs[@]}" -x ${prev:+--link-dest="$prev/var"} "${vx[@]}" --exclude-from=<(var_excludes) /var/ "$partial/var/" || rc=1
     if [[ $rc != 0 ]]; then
         echo "  snapshot incomplete: kept as $partial for inspection; nothing pruned"
         return 1
     fi
     run rm -rf "$today"; run mv "$partial" "$today"
+    mark_ok local
     # VM disks: separately, only when changed and their VM is off; keep the last 2 copies
     local img name stamp
-    for d in $VM_DIRS; do
-        for img in "$d"/*.qcow2 "$d"/*.img; do
-            [[ -f "$img" ]] || continue
-            name=$(basename "$img")
-            if virsh -c qemu:///system list --name 2>/dev/null | while read -r vm; do
-                   [[ -n "$vm" ]] && virsh -c qemu:///system domblklist "$vm" --details 2>/dev/null | grep -qF "$img" && echo hit
-               done | grep -q hit; then
-                echo "  $name: its VM is running — copied another night"; continue
-            fi
-            stamp=$(stat -c '%Y-%s' "$img")
-            [[ -f "$dest/vm-images/$name.stamp" && "$(cat "$dest/vm-images/$name.stamp")" == "$stamp" ]] && { echo "  $name: unchanged"; continue; }
-            run mkdir -p "$dest/vm-images"
-            run rsync -a --sparse "$img" "$dest/vm-images/$name.$(date +%F)" || { rc=1; continue; }
-            [[ $DRY == 1 ]] || echo "$stamp" > "$dest/vm-images/$name.stamp"
-            # keep the last 2
-            find "$dest/vm-images" -maxdepth 1 -name "$name.20*" | sort | head -n -2 | while read -r old; do run rm -f "$old"; done
-        done
-    done
+    while read -r img; do
+        name=$(basename "$img")
+        if vm_in_use "$img"; then echo "  $name: its VM is running — copied the first night it is off"; continue; fi
+        stamp=$(stat -c '%Y-%s' "$img")
+        [[ -f "$dest/vm-images/$name.stamp" && "$(cat "$dest/vm-images/$name.stamp")" == "$stamp" ]] && { echo "  $name: unchanged"; continue; }
+        run mkdir -p "$dest/vm-images"
+        run rsync -a --sparse "$img" "$dest/vm-images/$name.$(date +%F)" || { rc=1; continue; }
+        [[ $DRY == 1 ]] || echo "$stamp" > "$dest/vm-images/$name.stamp"
+        # keep the last 2
+        find "$dest/vm-images" -maxdepth 1 -name "$name.20*" | sort | head -n -2 | while read -r old; do run rm -f "$old"; done
+    done < <(vm_images)
     prune_snapshots "$dest"
     return $rc
 }
@@ -140,15 +246,42 @@ prune_snapshots() {
 
 backup_offsite() {
     [[ -n "${RESTIC_REPOSITORY:-}" ]] || { echo "no RESTIC_REPOSITORY in $CONF"; return 99; }
+    if [[ $MODE == catch-up ]] && (( $(age_h offsite) < MAX_AGE_H )); then echo "last good copy $(age_h offsite) h ago"; return 99; fi
     nm-online -q -t 30 || { echo "offline"; return 99; }
     export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE B2_ACCOUNT_ID B2_ACCOUNT_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY 2>/dev/null
-    local rc=0
-    run restic backup --host "$(hostname)" --tag nightly --exclude-caches \
-        --exclude-file=<(home_excludes | sed -e "s|^/|$UHOME/|" -e 's|/$||') \
-        "$UHOME" /etc/libvirt /var/lib/libvirt || rc=1
+    local rc=0 vp img name stamp
+    mapfile -t vp < <(var_paths)
+    # Same scope as the local copy: $HOME, all of /etc, /var state (S2d).
+    run restic backup --host "$(hostname)" --tag nightly --one-file-system --exclude-caches \
+        --exclude-file=<( { home_excludes | sed -e "s|^/|$UHOME/|"; var_excludes | sed -e 's|^/|/var/|'; } | sed 's|/$||') \
+        "$UHOME" /etc "${vp[@]}" || rc=1
+    [[ $rc == 0 ]] && mark_ok offsite
+    # VM disks as for the local copy: only when their VM is off and the disk changed.
+    while read -r img; do
+        name=$(basename "$img")
+        if vm_in_use "$img"; then echo "  $name: its VM is running — uploaded the first night it is off"; continue; fi
+        stamp=$(stat -c '%Y-%s' "$img")
+        [[ "$(cat "$STATE/offsite-$name.stamp" 2>/dev/null)" == "$stamp" ]] && { echo "  $name: unchanged"; continue; }
+        if run restic backup --host "$(hostname)" --tag vm-disk "$img"; then
+            [[ $DRY == 1 ]] || echo "$stamp" > "$STATE/offsite-$name.stamp"
+        else
+            rc=1
+        fi
+    done < <(vm_images)
     # Pruning needs the admin key and is done by hand (S2b); the nightly key cannot delete.
-    if [[ "$(date +%d)" == 01 ]]; then run restic check --read-data-subset=5% || rc=1; fi
+    if [[ $MODE == nightly && "$(date +%d)" == 01 ]]; then run restic check --read-data-subset=5% || rc=1; fi
     return $rc
+}
+
+# R1: at least one good copy (local or off-site) younger than a day, plus a margin
+# for the timer's random delay and a long run.
+restore_point() {
+    local l o newest
+    l=$(age_h local); o=$(age_h offsite)
+    newest=$(( l < o ? l : o ))
+    echo "last good copy: local $( ((l == 9999)) && echo never || echo "$l h ago" ), off-site $( ((o == 9999)) && echo never || echo "$o h ago" )"
+    (( newest <= MAX_AGE_H + 2 )) || { echo "restore point is older than a day"; return 1; }
+    return 0
 }
 
 # ── 2. drift report ──────────────────────────────────────────────────
@@ -190,8 +323,16 @@ firmware_metadata() { run fwupdmgr refresh --force >/dev/null 2>&1; fwupdmgr get
 
 # ── run ──────────────────────────────────────────────────────────────
 echo "cosmic-nightly $(date -Is) on $(hostname) (user $U)$([[ $DRY == 1 ]] && echo ', DRY RUN')"
+step "manifest"                     manifest
 step "backup: local snapshot (DAS)" backup_local
 step "backup: off-site (restic)"    backup_offsite
+step "restore point (R1)"           restore_point
+if [[ $MODE == catch-up ]]; then
+    # No drift report, upgrades or notification: the nightly run does those.
+    printf '%s\n' "${SUMMARY[@]}" | LC_ALL=C sort -s -k1,1 > "$STATE/catch-up.txt"
+    chmod 0644 "$STATE/catch-up.txt"
+    exit 0
+fi
 step "drift report"                 drift
 step "upgrade: image (staged)"      upgrade_image
 step "upgrade: flatpaks"            upgrade_flatpaks
@@ -206,6 +347,7 @@ REPORT="$STATE/report.txt"
     echo
     echo "Staged image: $(bootc status --format=json 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin)["status"].get("staged"); print(s["image"]["image"]["image"]+" (applies at the next reboot)" if s else "none")' 2>/dev/null || echo unknown)"
     echo "Drift: $(grep -vc '^--' "$STATE/drift.txt" 2>/dev/null || echo '?') item(s) — $STATE/drift.txt"
+    echo "Restore point: local $( (( $(age_h local) == 9999 )) && echo never || echo "$(age_h local) h ago" ), off-site $( (( $(age_h offsite) == 9999 )) && echo never || echo "$(age_h offsite) h ago" ); manifest in $STATE/manifest"
     echo "Log: $LOG"
 } > "$REPORT"
 chmod 0644 "$REPORT"
