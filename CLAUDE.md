@@ -30,8 +30,9 @@ hibernation (F2) are hard requirements.
   disk UUIDs, tailnet name, keys. Personal values live only in `site.env`; docs
   write `$SITE_USER` and `/home/$SITE_USER`. `scripts/check-leaks.sh` must pass
   before every push (it fails on `/home/<name>`, `/run/media/<name>`, any UUID).
-- Build images **locally** (`bluebuild build -B podman …`, see `docs/local-build.md`);
-  GitHub Actions minutes are nearly used up.
+- The image is built **nightly in GitHub Actions** (free for this public repo); local
+  builds (`bluebuild build -B podman …`, `docs/local-build.md`) test a change before it is
+  pushed. Keep the base image as close to stock as possible (spec F9).
 - During the test, the 2TB system has its **own** Syncthing device ID and Tailscale
   node — never the real frmwrk identities.
 
