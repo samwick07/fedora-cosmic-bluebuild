@@ -6,6 +6,11 @@ stand and the exact next step. No personal values here (write `$SITE_USER`).
 Last updated: 2026-10-03 (late evening)
 
 ## Where things stand
+- **R1 restore point within a day** (PR on branch `restore-point`): backup scope is now all
+  of `/etc` and the state in `/var`, plus a nightly machine manifest and an hourly catch-up;
+  restore steps in `docs/restore.md`. Tested in the sandbox with stubs only.
+- **Open questions to the user:** Homebrew as the CLI lane (reverses C3), and the
+  virt-manager flatpak (A14 stays a trial on the 2TB).
 - **Image and user layer merged** (PR #7, dotfiles PR #2; CI build + smoke test green).
   Nothing has run on hardware since the refactor. A review of the design against Universal
   Blue, BlueBuild and bootc practice (with proposed spec changes) is in the Project, not here.
