@@ -27,116 +27,136 @@ list to port.
 - **Lane**: where it is declared.
   - `image` = recipe (needs the kernel, systemd, `/dev`, or must exist before the user layer)
   - `flatpak` = GUI app
-  - `brew` = a CLI binary you type
   - `box:<name>` = needs its own distro (IDE, toolchain, vendor stack)
+  - `user` = installed into `$HOME` by the user layer (native installers, `uv`, npm prefix)
   - `dotfiles` = user config (chezmoi)
   - `data` = restored or synced, never installed
   - `manual` = a documented one-time step
-- **When**:
-  - `day-1` = blocks daily use
-  - `week-1` = needed soon
-  - `later` = nice to have
-  - `drop` = decided against
+- **When**: `day-1` blocks daily use · `week-1` needed soon · `later` nice to have.
 - **State**:
-  - `confirmed` = decided
-  - `candidate` = carried over from the old plan or the Workstation; keep, change or drop it
+  - `confirmed` = decided by you
+  - `proposed: keep` / `proposed: drop` = recommendation from the evidence; becomes
+    confirmed when you accept it
+  - `question` = needs your answer (section 7)
+- **Evidence**: what the Workstation inventory (2026-10-03, read-only) shows. "Installed"
+  is not "used"; shell history and enabled services are the stronger signals.
 - **Check**: the acceptance test. Section 6 collects them.
 
 ## 3. Requirements
 
 ### 3.1 Platform and hardware
 
-| ID | Need | Lane | When | State | Check |
-| --- | --- | --- | --- | --- | --- |
-| P1 | Boots to a LUKS prompt, then the COSMIC greeter, unattended | image + install | day-1 | confirmed | cold boot ×3 |
-| P2 | Hibernation per F2 | image + install | day-1 | confirmed | `systemctl hibernate` → resume; lid closed 5 min → hibernates |
-| P3 | Suspend on lid close (s2idle), Bluetooth works after resume | image | day-1 | confirmed | lid close/open; BT device reconnects |
-| P4 | Wi-Fi, Bluetooth, audio, webcam, both USB-C displays | base image | day-1 | confirmed | manual pass |
-| P5 | Firmware updates (fwupd / LVFS) | base image | week-1 | candidate | `fwupdmgr get-updates` |
-| P6 | Fingerprint login and sudo (`fprintd`) | image | week-1 | confirmed (in daily use for sudo on the Workstation) | `sudo` prompts for the finger |
-| P7 | Ambient light / auto brightness (`iio-sensor-proxy`) | image | later | candidate | — does COSMIC use it? |
-| P8 | Power profiles / battery charge limit | base image | week-1 | candidate | `powerprofilesctl` |
+| ID | Need | Lane | When | Evidence | State | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| P1 | Boots to a LUKS prompt, then the COSMIC greeter, unattended | image + install | day-1 | — | confirmed | cold boot ×3 |
+| P2 | Hibernation per F2 | image + install | day-1 | Workstation runs this way today: Secure Boot off, 96 GB LUKS swap partition | confirmed | `systemctl hibernate` → resume; lid closed 5 min → hibernates |
+| P3 | Suspend on lid close (s2idle); Bluetooth after resume | image | day-1 | s2idle | confirmed | lid close/open; BT reconnects |
+| P4 | Wi-Fi (MediaTek), Bluetooth, audio, webcam, USB-C displays | base image | day-1 | devices present | confirmed | manual pass |
+| P5 | Firmware updates (fwupd / LVFS) | base image | week-1 | fwupd installed | proposed: keep | `fwupdmgr get-updates` |
+| P6 | Fingerprint for login and sudo | image (`fprintd-pam`) | week-1 | Goodix reader; `sudo` asks for the finger daily | confirmed | `sudo` prompts for the finger |
+| P7 | Ambient light / rotation (`iio-sensor-proxy`) | image | — | no sign of use | proposed: drop | — |
+| P8 | Power profiles, thermal | base image | day-1 | tuned-ppd + thermald enabled | proposed: keep (base default) | `powerprofilesctl` |
+| P9 | TPM2 unlock of LUKS (clevis) | image + manual | ? | clevis-luks + clevis-pin-tpm2 installed | question | — |
+| P10 | Printing (CUPS) | base image | later | cups enabled; no sign of use | question | — |
+| P11 | External monitor brightness (`ddcutil`) | image | later | installed | question | — |
 
 ### 3.2 Desktop and shell
 
-| ID | Need | Lane | When | State | Check |
-| --- | --- | --- | --- | --- | --- |
-| D1 | COSMIC session starts on every login (no black screen) | image | day-1 | confirmed | 10 logins, `journalctl -t cosmic-session-wait` |
-| D2 | Terminal: Ghostty | image | day-1 | candidate | — or COSMIC Terminal? |
-| D3 | Shell: bash + starship prompt, tmux | image + dotfiles | day-1 | candidate | |
-| D4 | Default browser (which, and is CAC required in it? see V3) | ? | day-1 | candidate | |
-| D5 | COSMIC settings (keybindings, panels, theme) in dotfiles | dotfiles | week-1 | candidate | fresh login looks right |
+| ID | Need | Lane | When | Evidence | State | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| D1 | COSMIC session starts on every login (no black screen) | image | day-1 | — | confirmed | 10 logins; `journalctl -t cosmic-session-wait` |
+| D2 | Terminal: Ghostty | image | day-1 | RPM, autostarted at login | proposed: keep | opens from the launcher |
+| D3 | bash + starship prompt | image + dotfiles | day-1 | starship in use (installed by hand) | proposed: keep | prompt renders |
+| D4 | tmux | image | — | not in shell history | proposed: drop | — |
+| D5 | topgrade (one command updates everything) | image | week-1 | 57 uses, top 5 command | proposed: keep | updates image, flatpaks, boxes |
+| D6 | Default browser: Google Chrome; Firefox (base) as fallback | see A2 | day-1 | Chrome is the https/html handler and autostarts | proposed: keep | links open in Chrome |
+| D7 | Window tiling | COSMIC built-in | day-1 | GNOME Tactile extension | proposed: COSMIC tiling replaces it | tile shortcuts work |
+| D8 | PDF viewer | flatpak | day-1 | Evince is the PDF handler | proposed: keep (flatpak) | PDF opens |
+| D9 | COSMIC settings (keybindings, panel, theme) | dotfiles | week-1 | — | proposed: keep | fresh login looks right |
 
 ### 3.3 Network and remote access
 
-| ID | Need | Lane | When | State | Check |
-| --- | --- | --- | --- | --- | --- |
-| N1 | Wi-Fi profiles available at first boot (a network-free first boot broke flatpak setup) | manual / data | day-1 | confirmed | first boot has network, or every first-boot job retries |
-| N2 | Tailscale: this machine's own node | image + manual | week-1 | candidate | `tailscale status` |
-| N3 | VPN: OpenVPN / OpenConnect profiles (which sites?) | image + data | ? | candidate | |
+| ID | Need | Lane | When | Evidence | State | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| N1 | Network at first boot, or every first-boot job retries | image (retry drop-ins) | day-1 | first test install failed here | confirmed | flatpaks install without manual action |
+| N2 | Wi-Fi profiles migrate (~20 saved networks) | manual (copy NM profiles) | day-1 | many saved profiles | proposed: keep | known networks connect |
+| N3 | Tailscale: this machine's own node | image + manual | day-1 | in daily use | proposed: keep | `tailscale status` |
+| N4 | Cisco Secure Client VPN (AnyConnect) | ? | ? | installed, service enabled, autostarts | question | — |
+| N5 | Windscribe VPN | ? | ? | installed, helper service enabled | question | — |
 
 ### 3.4 Data, sync, backup
 
-| ID | Need | Lane | When | State | Check |
-| --- | --- | --- | --- | --- | --- |
-| S1 | Syncthing with dsktp, folders as today; hardware-specific config not synced | image + dotfiles | day-1 | confirmed | folders Up to Date; edits on both sides are safe |
-| S2 | restic backup of this machine to the DAS, on a schedule or by hand? | image + dotfiles | week-1 | confirmed (schedule TBD) | `restic snapshots --host frmwrk` |
-| S3 | Which data is restored from restic at migration (vs. arrives by Syncthing) | data | day-1 | candidate | migration checklist (section 5) |
+| ID | Need | Lane | When | Evidence | State | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| S1 | Syncthing with dsktp: Documents, Music, Pictures, Videos, Downloads, Desktop, Public, Templates, Applications, VMs, Sync | image + dotfiles (user unit) | day-1 | 11 folders; started from an autostart entry today; one malformed folder entry (empty id, path `~`) to check | confirmed | folders Up to Date |
+| S2 | restic backup of this machine to the DAS | dotfiles (script + timer?) | week-1 | run by hand from a script on the DAS | question: schedule | `restic snapshots --host frmwrk` |
+| S3 | Non-synced data to carry over: `~/.ssh`, `~/.gnupg`, `~/.hermes`, `~/.claude*`, app configs as needed | data (restic, by hand) | day-1 | `~/.config` 27 GB and `~/.local` 77 GB are mostly app state and Python packages, not to be copied wholesale | proposed: keep (explicit list) | migration checklist |
 
 ### 3.5 Applications (GUI)
 
-Candidates from the old plan; mark keep, drop or later.
-
-| ID | App | Lane | State |
-| --- | --- | --- | --- |
-| A1 | Claude Desktop, in an Ubuntu distrobox until an RPM/flatpak exists | box:claude | confirmed |
-| A2 | Firefox (base RPM) | image (base) | candidate |
-| A3 | Google Chrome (RPM in the dev box, CAC capable) | box:dev | candidate |
-| A4 | VS Code, Antigravity | box:dev | candidate |
-| A5 | LibreOffice | flatpak | candidate |
-| A6 | Signal | flatpak | candidate |
-| A7 | VLC | flatpak | candidate |
-| A8 | GIMP, Inkscape, Darktable | flatpak | candidate |
-| A9 | Calibre | flatpak | candidate |
-| A10 | Steam | flatpak | candidate |
-| A11 | Bottles (Windows apps) | flatpak | candidate |
-| A12 | Remmina (RDP/VNC) | flatpak | candidate |
-| A13 | Flatseal, Gear Lever (AppImages) | flatpak | candidate |
-| A14 | virt-manager | image | follows V1 |
+| ID | App | Lane | When | Evidence | State |
+| --- | --- | --- | --- | --- | --- |
+| A1 | Claude Desktop | box:claude (Ubuntu) | day-1 | runs from a distrobox today | confirmed |
+| A2 | Google Chrome (CAC capable) | box:dev (RPM) or flatpak | day-1 | default browser | proposed: keep; lane question (V3) |
+| A3 | Firefox | image (base) | — | installed (base) | proposed: keep as fallback |
+| A4 | VS Code | box:dev | day-1 | RPM from Microsoft repo | proposed: keep |
+| A5 | Antigravity | box:dev | week-1 | RPM installed | proposed: keep |
+| A6 | PyCharm | box:dev | ? | COPR repo enabled | question |
+| A7 | GIMP, darktable | flatpak | later | RPMs installed | proposed: keep (later) |
+| A8 | Calibre | flatpak | later | RPM installed | proposed: keep (later) |
+| A9 | DaVinci Resolve | box (vendor) | ? | installed by hand, helper COPR | question |
+| A10 | Xilinx / FPGA tools | box (vendor) | ? | in synced Applications | question |
+| A11 | Windows apps via Wine / Bottles | flatpak (Bottles) | later | a Wine prefix (~2 GB), `.exe` installers kept | question |
+| A12 | RDP client (Remmina) | flatpak | later | freerdp + GNOME Connections installed | proposed: keep (later) |
+| A13 | Flatseal, Gear Lever | flatpak | later | installed; AppImage folders are empty | proposed: Flatseal keep, Gear Lever drop |
+| A14 | virt-manager | image | week-1 | follows V1 (replaces GNOME Boxes) | proposed: keep |
+| A15 | Email/calendar (Evolution EWS) | ? | ? | evolution-ews installed | question |
+| A16 | LibreOffice, Signal, VLC, Inkscape | flatpak | ? | not visible (inventory list truncated) | question |
+| A17 | Steam | — | — | repo enabled, ~40 KB of data: never used | proposed: drop |
+| A18 | Zotero, Zen browser | — | — | leftovers (no longer used) | confirmed: drop |
 
 ### 3.6 CLI tools
 
-Candidates (Brewfile of the old plan): eza bat fd ripgrep fzf zoxide jq yq btop fastfetch
-micro superfile gh uv shellcheck shfmt lazydocker opencode tesseract ocrmypdf nmap mtr.
-Image candidates: git, restic, chezmoi, age, topgrade, gdisk, smartmontools, lm_sensors.
-**To decide:** the list, and whether Homebrew earns its own lane, or the handful in daily
-use go into the image and the rest into the dev box.
+Evidence: Homebrew holds only three tools (chezmoi, cosign, lazydocker), so it does not
+earn its own lane. Most-used CLI tools from shell history: docker (83), topgrade (57),
+btop (47), lazydocker (30), git, nmap, ssh, fastfetch, gh, curl.
+
+| ID | Tools | Lane | State |
+| --- | --- | --- | --- |
+| C1 | git, gh, btop, fastfetch, nmap, 7zip, chezmoi, topgrade, restic | image | proposed: keep |
+| C2 | lazydocker, cosign, bluebuild | follows E4 / E8 | proposed: keep |
+| C3 | Homebrew | — | proposed: drop (three tools; move them to C1/C2) |
 
 ### 3.7 Development environments
 
-| ID | Need | Lane | When | State |
-| --- | --- | --- | --- | --- |
-| E1 | Claude Code CLI next to Claude Desktop | box:claude | day-1 | confirmed |
-| E2 | General dev toolchain (Node 22, Java 25, Python, gcc, ShellCheck) | box:dev | ? | candidate: which languages are actually used? |
-| E3 | ROCm compute on the 780M | box:rocm | later | candidate: used for what? |
-| E4 | Containers: podman (base); Docker workloads (Open WebUI, SearXNG) | ? | ? | candidate: still wanted on the laptop? |
-| E5 | Hermes agent | ? | ? | candidate |
+| ID | Need | Lane | When | Evidence | State |
+| --- | --- | --- | --- | --- | --- |
+| E1 | Claude Code CLI | box:claude, or host native installer into `$HOME` | day-1 | used; a native host install exists alongside the box | question: box or host |
+| E2 | Python data-science / ML (Jupyter, PyTorch, scikit-learn, Hugging Face, spaCy, Optuna) | user (`uv` venvs per project) or box:ml | week-1 | large `pip --user` stack, including CUDA wheels that do nothing on this AMD laptop | proposed: keep, per-project venvs, never `pip --user` |
+| E3 | GPU compute (ROCm on the 780M) | box:rocm | later | tried a few times | question |
+| E4 | Containers: Docker workloads (Open WebUI + SearXNG + Tailscale sidecar compose stack; Hermes sandbox; buildx for BlueBuild) | image: Docker Engine, or podman + compose | week-1 | docker is the most-used command (83), lazydocker 30, `./start.sh` 47 | proposed: keep; engine question |
+| E5 | Hermes agent (gateway user service, sandbox container) | user + E4 | week-1 | 46 uses, 15 GB state, user unit enabled | proposed: keep |
+| E6 | Other AI CLIs: Gemini CLI, OpenCode, browser-use, cua-driver | user | later | installed; little use in history | question |
+| E7 | Java (Temurin) | box:dev | ? | repo enabled | question |
+| E8 | Build this image locally (bluebuild, podman, cosign) | image or box | week-1 | in use for this project | proposed: keep |
+| E9 | General dev toolchain (Node, gcc, ShellCheck) | box:dev | week-1 | VS Code + Antigravity live there | proposed: keep (minimal) |
 
 ### 3.8 Virtualization and CAC
 
-| ID | Need | Lane | When | State | Check |
-| --- | --- | --- | --- | --- | --- |
-| V1 | Win11 VM (virtio, Secure Boot + TPM in the guest), same disk as today | image + data | week-1 | confirmed | boots, no BitLocker prompt |
-| V2 | CAC reader passed into the Win11 VM | image (`win11-cac`) | week-1 | confirmed | `certutil -scinfo` in Windows |
-| V3 | CAC on the host (which browser, which sites?) | image + box/flatpak | ? | candidate | PIN prompt on a DoD site |
+| ID | Need | Lane | When | Evidence | State | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| V1 | Win11 VM (virtio, Secure Boot + TPM in the guest), same disk as today | image + data | week-1 | defined; also an old Windows dev-eval VM and a Fedora COSMIC test VM | confirmed (Win11VM only; the other two proposed: drop) | boots, no BitLocker prompt |
+| V2 | CAC reader passed into the Win11 VM | image (`win11-cac`) | week-1 | — | confirmed | `certutil -scinfo` in Windows |
+| V3 | CAC on the host, in Chrome | image (pcscd, opensc) + A2 | week-1 | user NSS db exists; a smart-card setup script in use | proposed: keep | PIN prompt on a DoD site |
 
 ### 3.9 Identity and secrets (how they reach a new machine)
 
 | ID | Item | Lane | State |
 | --- | --- | --- | --- |
-| I1 | SSH key for GitHub (the restored key was rejected; a new key per machine?) | manual | to decide |
-| I2 | GPG keys, `gh` auth, password manager | manual / data | to decide |
+| I1 | SSH key for GitHub: one key per machine, added to GitHub at setup (the restored key was rejected on the test drive) | manual | proposed: keep |
+| I2 | GPG keys, `gh` auth | data / manual | proposed: keep |
 | I3 | Restic password, cosign key: in the password manager only (no plaintext copies) | manual | confirmed |
+| I4 | Password manager on the laptop (which one, which lane?) | ? | question |
 
 ## 4. Install and lifecycle
 
@@ -171,16 +191,25 @@ Generated from the Check columns once the tables are confirmed.
 
 ## 7. Open questions
 
-Answered from the Workstation inventory and by you:
+From the Workstation inventory; each needs a yes/no or a choice:
 
-- Which apps and CLI tools are used weekly? (D2–D4, 3.5, 3.6)
-- Which dev languages and stacks? Docker workloads on the laptop at all? (E2–E5)
-- Host CAC: needed, in which browser? (V3)
-- VPN profiles still in use? (N3)
-- Fingerprint, ambient light? (P6, P7)
-- SSH and identity policy for a new machine (I1, I2)
+1. **VPNs:** Cisco Secure Client (N4) and Windscribe (N5): still needed on the laptop?
+   For Cisco, does NetworkManager's OpenConnect (AnyConnect protocol) work with that
+   server, or is the vendor client required?
+2. **Containers (E4):** Docker Engine layered in the image, or podman with a Docker-compatible
+   socket + compose? Does the Hermes sandbox require Docker?
+3. **Claude Code CLI (E1):** in the `claude` box with Claude Desktop, or host-native in `$HOME`?
+4. **Vendor apps:** DaVinci Resolve (A9), Xilinx tools (A10), PyCharm (A6), Java (E7): still used?
+5. **Windows apps (A11):** which ones run under Wine today; do they need Bottles or the VM?
+6. **Email/calendar (A15)** and **password manager (I4):** which apps?
+7. **Not visible in the truncated package list:** LibreOffice, Signal, VLC, Inkscape (A16).
+8. **Hardware extras:** TPM2 LUKS unlock (P9), printing (P10), monitor brightness (P11).
+9. **GPU compute (E3)** and **other AI CLIs (E6):** needed on the laptop?
+10. **Backup schedule (S2):** by hand as today, or a timer?
 
 ## Change log
 
 - 2026-10-03: draft after the first test run; F1 (COSMIC) and F2 (hibernation) confirmed
   as hard requirements; L1 confirmed: stock ISO + `bootc switch`.
+- 2026-10-03: Workstation inventory added as evidence; candidates turned into proposals
+  and questions; Homebrew lane proposed for removal; Zotero and Zen dropped.
