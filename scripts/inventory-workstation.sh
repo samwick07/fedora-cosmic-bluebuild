@@ -23,7 +23,9 @@ sec "os"                 bash -c '. /etc/os-release; echo "$PRETTY_NAME"; uname 
 sec "hardware"           bash -c 'free -g | head -2; cat /sys/class/dmi/id/product_name 2>/dev/null; cat /sys/power/mem_sleep /sys/power/disk; cat /sys/kernel/security/lockdown 2>/dev/null; swapon --show'
 
 # ── Packages you installed (not the Fedora defaults) ──
-sec "dnf: user-installed packages" bash -c 'dnf repoquery --userinstalled --queryformat "%{name}\n" 2>/dev/null | sort -u || dnf history userinstalled 2>/dev/null'
+MAX=2000 sec "dnf: user-installed packages" bash -c 'dnf repoquery --userinstalled --queryformat "%{name}\n" 2>/dev/null | sort -u || dnf history userinstalled 2>/dev/null'
+# What you asked dnf for (the list above also holds everything the installer put down)
+MAX=400 sec "dnf: install commands from history" bash -c 'dnf history list 2>/dev/null | grep -iE "install|swap"'
 sec "dnf: enabled repos"  dnf repolist --enabled
 sec "flatpak apps"        flatpak list --app --columns=application,origin,installation
 sec "flatpak overrides"   bash -c 'ls ~/.local/share/flatpak/overrides /var/lib/flatpak/overrides 2>/dev/null'
