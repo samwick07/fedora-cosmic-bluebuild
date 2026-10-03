@@ -21,7 +21,7 @@ list to port.
 | F5 | Encrypted disk (LUKS2: root and swap) | Laptop leaves the house | One passphrase at boot and at resume. |
 | F6 | Test on the 2TB drive first; the 4TB Workstation is untouched until this spec's acceptance checks pass | The Workstation is the daily driver | Two installs of the same spec; the second must need no fixes. |
 | F8 | **Backups follow 3-2-1**: local copy as plain files on the DAS (later a NAS), off-site copy encrypted (block-level) in the cloud | Data safety without lock-in to one target | Two tools, one trigger: the daily update routine (S2). Targets are configuration, so a NAS can replace the DAS. |
-| F9 | **Base image as close to stock as possible.** An RPM is layered only when it needs the host kernel or a host service; configuration files are fine. Everything else is a flatpak, a distrobox, or a single binary in `$HOME` installed by the user layer | Fewer layered packages: smaller image, fewer update conflicts, closer to what Fedora tests | Layered: the libvirt/QEMU/swtpm stack (V1) and Tailscale (N3). Not layered: Homebrew, Ghostty, starship, topgrade, chezmoi, distrobox, Syncthing, restic, NetworkManager VPN plugins, `openssl`. |
+| F9 | **Base image as close to stock as possible.** An RPM is layered only when it needs the host kernel or a host service; configuration files are fine. Everything else is a flatpak, a distrobox, or a single binary in `$HOME` installed by the user layer | Fewer layered packages: smaller image, fewer update conflicts, closer to what Fedora tests | Layered: the libvirt/QEMU/swtpm stack (V1), Tailscale (N3) and, during the VPN trial, NetworkManager-openconnect (N4). Not layered: Homebrew, Ghostty, starship, topgrade, chezmoi, distrobox, Syncthing, restic, `openssl`, other NetworkManager VPN plugins. |
 | F7 | Names: images `fedora-cosmic-frmwrk` / `-dsktp`; hosts `frmwrk` / `dsktp` | "cosmic-desktop" reads as the DE | The desktop (dsktp) is out of scope until the laptop has run 3–6 months. |
 
 ## 2. How to read the requirement tables
@@ -82,9 +82,9 @@ list to port.
 | N1 | Network at first boot, or every first-boot job retries | image (retry drop-ins) | day-1 | first test install failed here | confirmed | flatpaks install without manual action |
 | N2 | Wi-Fi profiles migrate (~20 saved networks) | migration (M1) | day-1 | many saved profiles | confirmed | known networks connect |
 | N3 | Tailscale: this machine's own node | image (needs the host daemon; F9 exception) + manual | day-1 | in daily use | confirmed | `tailscale status` |
-| N4 | Cisco VPN for work (AnyConnect) | **box:vpn**: rootful distrobox (Ubuntu 24.04 with systemd for the vendor services) running Cisco Secure Client, its window/tray icon exported to the host. Distroboxes share the host network, so the tunnel's routes reach the host, `dev` (Chrome, Ghostty), `claude` and podman containers (Hermes). Not in COSMIC's network menu: that menu only drives NetworkManager connections, and a Cisco one would need a layered plugin (F9). Fallback only if posture or DNS fails: NetworkManager-openconnect, as an explicit F9 exception | week-1 | Cisco Secure Client installed, service enabled, autostarts | confirmed | connects from the box; the posture check (if the server runs one) passes; routes and DNS (N6) work from the host, `dev` and a podman container |
-| N6 | Work-internal names, including a `.local` hostname, resolve on the host, in every box and in podman containers while the Cisco VPN is up. `.local` is multicast DNS by default on Fedora, so it must be routed to the VPN's DNS explicitly: a host unit (image, generic) runs when the VPN interface appears and sets its DNS servers and routing domains with `resolvectl`, reading the values from a private file in `/etc` written during migration (never in the image). Fallback: `/etc/hosts` entries (private) | image (generic unit) + migration | week-1 | the Workstation resolves it today; how is recorded first (migration W3) | confirmed | `getent hosts` of the internal names on the host, in `dev` and in a podman container |
-| N5 | Windscribe: WireGuard profiles in NetworkManager (built in, no plugin), so they appear in **COSMIC's network menu**; the Windscribe app in box:vpn for its extras | NetworkManager config + box:vpn | later | installed, helper service enabled | confirmed | connects from the network menu; no DNS leak |
+| N4 | Cisco VPN for work (AnyConnect) — **trial of two methods, keep the one that works and suits the workflow**: (a) **NetworkManager-openconnect** layered (F9 exception for the trial), connected from COSMIC's network menu or `nmcli --ask connection up`; (b) **Cisco Secure Client in box:vpn**, a rootful distrobox (Ubuntu 24.04 with systemd), its window/tray icon exported. Boxes share the host network, so either way the tunnel reaches the host, `dev`, `claude` and podman containers. The method not chosen leaves the image or the box | image (trial) + box:vpn | week-1 | Cisco Secure Client installed, service enabled, autostarts | trial | per method: connects; the posture check (if the server runs one) passes; routes and DNS work from the host, `dev` (Chrome, Ghostty) and a podman container (Hermes); COSMIC's menu shows state (a) and can log in, incl. SSO if used |
+| N6 | Work-internal names over the VPN, including a `.local` one | — | — | the `.local` name moves to a real domain soon (work IT) | postponed: revisit only if the move does not happen | — |
+| N5 | Windscribe: **native WireGuard profiles in NetworkManager** (built in, no plugin; in COSMIC's network menu) **and** the Windscribe app in box:vpn — both kept for the trial; decide after use | NetworkManager config + box:vpn | later | installed, helper service enabled | trial | connects both ways; no DNS leak |
 
 ### 3.4 Data, sync, backup
 
@@ -213,9 +213,8 @@ Generated from the Check columns once the tables are confirmed.
 
 1. **O1 drift report:** keep it (a short report in the daily routine of anything not
    declared), or drop it?
-
-Evidence still to collect (migration W2, W3): the Cisco login and posture facts, and how
-the internal names resolve on the Workstation today. They decide N6's values, not the design.
+2. **N4/N5 VPN method:** decided after the trial on the 2TB (record the results in the
+   journal); the losing method is removed.
 
 ## Change log
 
@@ -239,3 +238,7 @@ the internal names resolve on the Workstation today. They decide N6's values, no
   connections, so Windscribe's WireGuard profiles appear there and Cisco does not. N6 added
   (internal and `.local` names over the VPN). B2 key model added to S2b. Migration checklist
   moved to the dotfiles repo. O1 (drift report) carried over from 2026-10-01 as a proposal.
+- 2026-10-03: VPN trial: NetworkManager-openconnect layered (F9 exception while the trial
+  runs), Cisco Secure Client and the Windscribe app in box:vpn, Windscribe also as native
+  NetworkManager WireGuard; keep what works. N6 postponed (the `.local` name moves to a
+  real domain). Rebuild plan added (`docs/rebuild-plan.md`).
