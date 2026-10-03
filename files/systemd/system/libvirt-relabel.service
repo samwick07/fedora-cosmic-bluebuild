@@ -1,0 +1,13 @@
+[Unit]
+Description=Restore SELinux labels on libvirt state (VM disks, NVRAM, swtpm), as Bluefin DX does
+# Files copied back from a backup or moved by hand keep the wrong label, and QEMU then
+# cannot open them. Cheap when nothing needs fixing.
+After=local-fs.target
+Before=virtqemud.service
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/sbin/restorecon -R /var/lib/libvirt /var/log/libvirt
+
+[Install]
+WantedBy=multi-user.target

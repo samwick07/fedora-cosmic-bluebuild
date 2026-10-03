@@ -1,0 +1,12 @@
+[Unit]
+Description=Add administrators (wheel) to the libvirt group, as Bluefin DX does
+# Members of libvirt reach qemu:///system without a polkit password prompt (virt-manager,
+# virsh, win11-cac's checks). Runs at every boot; does nothing once done.
+After=local-fs.target systemd-sysusers.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/libvirt-user-groups
+
+[Install]
+WantedBy=multi-user.target
