@@ -3,7 +3,7 @@
 Read this first in every session, then `docs/end-state.md`. Keep it short: where things
 stand and the exact next step. No personal values here (write `$SITE_USER`).
 
-Last updated: 2026-10-03 13:45 EDT
+Last updated: 2026-10-03 14:10 EDT
 
 ## Where things stand
 - **Refactor in progress.** The first test install (2TB, 2026-10-02/03) showed that the
@@ -22,17 +22,23 @@ Last updated: 2026-10-03 13:45 EDT
 - **Evidence so far:** fingerprint `sudo` is in daily use on the Workstation → P6 keep.
 - **Held fixes** from the first run are on branch `held/first-run-fixes` (scrubbed,
   not for merge as-is). Take what the spec asks for (the flatpak retry drop-ins → N1).
-- **Workstation inventory done** (private, in the chat). The spec now carries its
-  evidence: each row is `confirmed`, `proposed: keep/drop`, or `question`.
-- **Project:** uploads removed except the 2026-10-03 journal entry; the repo is to be
-  linked through GitHub (claude.ai → Project → Add content → GitHub).
+- **Spec decisions recorded** (2026-10-03): Cisco + Windscribe kept (NetworkManager
+  first, rootful distrobox as fallback); podman only, Docker workloads migrate (M6);
+  Claude Code CLI only in its box; PyCharm, DaVinci, Xilinx, Java dropped; Notepad++ via
+  Bottles; Google via Chrome; Collabora Office; TPM2 unlock, printing, ddcutil,
+  fingerprint, ROCm, AI CLIs kept; backups 3-2-1 (F8, S2a–d). Migration checklist added
+  (spec 5a). Five questions left (spec section 7).
+- **Project:** linked to this repo through GitHub; only the 2026-10-03 journal entry is
+  uploaded (it moves to the dotfiles journal once that repo is linked).
 
 ## Next (in order)
-1. Answer section 7 of `docs/end-state.md` and accept or change the `proposed` rows.
-   Optional: rerun `scripts/inventory-workstation.sh` (no longer truncates the package
-   list; adds dnf install history) for A16.
-2. Mark the spec confirmed; write the keep/retire list for this repo and the dotfiles repo.
-3. Rebuild the image layer from the spec; install on the 2TB (stock ISO + `bootc switch`),
+1. Answer the five questions in `docs/end-state.md` section 7 (TPM2 PIN, Windscribe lane,
+   backup tools/provider, desktop calendar, remaining proposals).
+2. Mark the spec confirmed; write the keep/retire list for this repo and the dotfiles
+   repo (grant the Claude GitHub App access to `dotfiles` for that).
+3. M6 prep on the Workstation while Docker is still there: export the Open WebUI stack
+   and Hermes volumes to the DAS.
+4. Rebuild the image layer from the spec; install on the 2TB (stock ISO + `bootc switch`),
    nothing restored; run the image-layer checks.
 
 ## Facts that are easy to forget
