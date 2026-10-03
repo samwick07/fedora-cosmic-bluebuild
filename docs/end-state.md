@@ -66,7 +66,7 @@ list to port.
 | ID | Need | Lane | When | Evidence | State | Check |
 | --- | --- | --- | --- | --- | --- | --- |
 | D1 | COSMIC session starts on every login (no black screen) | image | day-1 | — | confirmed | 10 logins; `journalctl -t cosmic-session-wait` |
-| D2 | Terminal: **Ghostty in box:dev** (COPR inside the box, exported to the menu; opens a shell in `dev`). COSMIC Terminal (stock) for host administration | box:dev | day-1 | Ghostty autostarted daily; no official flatpak | proposed | Ghostty opens from the launcher into `dev`; COSMIC Terminal opens a host shell |
+| D2 | Terminal: **Ghostty in box:dev** (COPR inside the box, exported to the menu; opens a shell in `dev`, where daily work happens). COSMIC Terminal (stock) for host administration | box:dev | day-1 | Ghostty autostarted daily; no official flatpak | confirmed | Ghostty opens from the launcher into `dev`; COSMIC Terminal opens a host shell |
 | D3 | bash + starship prompt | user + dotfiles | day-1 | starship in use | confirmed | prompt renders on the host and in boxes |
 | D4 | tmux | — | — | not in shell history | drop | — |
 | D5 | topgrade: the daily update routine (backup, image, flatpaks, boxes) | user + dotfiles | week-1 | 57 uses | confirmed | one command updates everything after the backup |
@@ -82,8 +82,9 @@ list to port.
 | N1 | Network at first boot, or every first-boot job retries | image (retry drop-ins) | day-1 | first test install failed here | confirmed | flatpaks install without manual action |
 | N2 | Wi-Fi profiles migrate (~20 saved networks) | migration (M1) | day-1 | many saved profiles | confirmed | known networks connect |
 | N3 | Tailscale: this machine's own node | image (needs the host daemon; F9 exception) + manual | day-1 | in daily use | confirmed | `tailscale status` |
-| N4 | Cisco VPN for work (AnyConnect) | **box:vpn** — rootful distrobox (Ubuntu 24.04 with systemd, for the client's service), Cisco Secure Client inside. Distroboxes share the host network, so routes from this box reach the host, `dev`, `claude` and podman containers alike. Fallback if DNS or posture fails: NetworkManager-openconnect layered (F9 exception) | week-1 | Cisco Secure Client installed, service enabled, autostarts | proposed | VPN up: an internal host resolves and answers from the host, from `dev` (Chrome, Ghostty) and from a podman container (Hermes) |
-| N5 | Windscribe VPN: WireGuard profiles in NetworkManager (built in, no plugin) for everyday use; the Windscribe app in box:vpn for its extras | NetworkManager config + box:vpn | later | installed, helper service enabled | confirmed | connects; no DNS leak |
+| N4 | Cisco VPN for work (AnyConnect) | **box:vpn**: rootful distrobox (Ubuntu 24.04 with systemd for the vendor services) running Cisco Secure Client, its window/tray icon exported to the host. Distroboxes share the host network, so the tunnel's routes reach the host, `dev` (Chrome, Ghostty), `claude` and podman containers (Hermes). Not in COSMIC's network menu: that menu only drives NetworkManager connections, and a Cisco one would need a layered plugin (F9). Fallback only if posture or DNS fails: NetworkManager-openconnect, as an explicit F9 exception | week-1 | Cisco Secure Client installed, service enabled, autostarts | confirmed | connects from the box; the posture check (if the server runs one) passes; routes and DNS (N6) work from the host, `dev` and a podman container |
+| N6 | Work-internal names, including a `.local` hostname, resolve on the host, in every box and in podman containers while the Cisco VPN is up. `.local` is multicast DNS by default on Fedora, so it must be routed to the VPN's DNS explicitly: a host unit (image, generic) runs when the VPN interface appears and sets its DNS servers and routing domains with `resolvectl`, reading the values from a private file in `/etc` written during migration (never in the image). Fallback: `/etc/hosts` entries (private) | image (generic unit) + migration | week-1 | the Workstation resolves it today; how is recorded first (migration W3) | confirmed | `getent hosts` of the internal names on the host, in `dev` and in a podman container |
+| N5 | Windscribe: WireGuard profiles in NetworkManager (built in, no plugin), so they appear in **COSMIC's network menu**; the Windscribe app in box:vpn for its extras | NetworkManager config + box:vpn | later | installed, helper service enabled | confirmed | connects from the network menu; no DNS leak |
 
 ### 3.4 Data, sync, backup
 
@@ -91,7 +92,7 @@ list to port.
 | --- | --- | --- | --- | --- | --- | --- |
 | S1 | Syncthing with dsktp: Documents, Music, Pictures, Videos, Downloads, Desktop, Public, Templates, Applications, VMs, Sync | user (binary) + dotfiles (user unit) | day-1 | 11 folders; started from an autostart entry today; one malformed folder entry (empty id, path `~`) to fix | confirmed | folders Up to Date |
 | S2a | Local backup to the DAS as **plain files**: `rsync --link-dest` hard-link snapshots (unchanged files cost no space; restore = copy from a dated folder). Keep 7 daily, 4 weekly, 12 monthly. VM disk images are copied separately, only when changed and the VM is off, last 2 kept | dotfiles (script + config) | week-1 | today: restic to the DAS, run by hand | confirmed | a file from yesterday's snapshot opens directly from the DAS |
-| S2b | Off-site: **restic to Backblaze B2**, encrypted on the laptop before upload; same retention | dotfiles (script + config) | week-1 | none today | confirmed | `restic snapshots` lists today's; a test restore works |
+| S2b | Off-site: **restic to Backblaze B2**, encrypted on the laptop before upload; same retention. The laptop's B2 key cannot delete; the bucket keeps hidden versions 30 days; `forget --prune` only with a separate admin key; monthly `restic check --read-data-subset=5%` | dotfiles (script + config) | week-1 | none today (an off-site design from 2026-10-01 was postponed until now) | confirmed | `restic snapshots` lists today's; a test restore works |
 | S2c | Trigger: the daily update routine runs the backup first, then updates (topgrade custom step); a timer catches days without the routine | dotfiles (topgrade config + user timer) | week-1 | the backup is tied to the daily update habit | confirmed | backup log shows a run within the last 26 h |
 | S2d | Scope: all of `$HOME` (dotfiles and Downloads included; minus `~/.cache`, Trash and container image layers — container **volumes** are included); `/etc/libvirt` (domain and network XML) and `/var/lib/libvirt` (disks, NVRAM, swtpm). Targets are configuration (DAS → NAS later). The old restic repo on the DAS stays read-only for the migration | dotfiles | week-1 | home ≈ 750 GB + VM disks | confirmed | a VM restores from backup and boots |
 | S3 | Data outside Syncthing to carry over: `~/.ssh`, `~/.gnupg`, `~/.hermes`, `~/.claude*`, app configs as needed (not `~/.config` or `~/.local` wholesale) | migration (M5) | day-1 | `~/.config` 27 GB, `~/.local` 77 GB | confirmed | migration checklist |
@@ -172,6 +173,7 @@ btop (47), lazydocker (30), git, nmap, ssh, fastfetch, gh, curl.
 | L1 | Install path | **Stock Fedora COSMIC Atomic ISO** (Anaconda), then `bootc switch` to the signed image. Anaconda custom partitioning: ESP, ext4 /boot, LUKS2 swap ≥ RAM, LUKS2 btrfs root, one passphrase. First `sudo bootc switch ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` (unverified), reboot, then `sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` (the signing policy ships in the image; `docs/local-build.md`). Then check kargs (`rd.luks.uuid` for swap, `resume=`); `enable-hibernation.sh` adds what is missing. Secure Boot off after install (F2). Retires `install-atomic.sh`, `prepare-disk.sh`, `make-target-env.sh`, `install-to-disk.sh`. | **confirmed** 2026-10-03 |
 | L2 | Updates: the daily routine (D5) runs the backup, then `bootc upgrade` to the nightly build; it applies at the next reboot. The stage-only timer stays as a backstop | user + image (drop-in exists) | confirmed |
 | L3 | Rollback: previous deployment in the GRUB menu | built in | confirmed |
+| O1 | Daily drift report: what is on the machine that the spec and the dotfiles do not declare (layered packages, extra flatpaks, boxes, enabled units) | user (script in the daily routine) | later | design agreed in principle 2026-10-01, never built | proposed |
 | L4 | Rescue: the 2TB test drive, after the test, as a bootable spare | — | confirmed |
 
 ## 5. How the end state is reached (bring-up model)
@@ -192,27 +194,16 @@ Lessons from the first run, as rules:
 5. Acceptance = every **Check** in section 3 passes on the 2TB; then the same on the 4TB
    with no changes.
 
-## 5a. Migration checklist (one-time, layer 3)
+## 5a. Migration (one-time, layer 3)
 
-**Moves to the private dotfiles repo** (`.migration-prep/MIGRATION.md`) once Claude's
-GitHub App can reach it: the checklist is one-time and personal, and this repo only keeps
-what is reused (image, spec, install and recovery docs). Until then it stays here, generic.
-
-Done by hand, in order, each item checked before the next; never part of the image.
-Source: the Workstation itself or the existing restic archive on the DAS.
-
-| ID | Item | How | Check |
-| --- | --- | --- | --- |
-| M1 | Wi-Fi profiles (N2) | copy `/etc/NetworkManager/system-connections/` (root, mode 600) from the archive | known networks connect |
-| M2 | SSH, GPG, `gh` (I1, I2) | new SSH key for this machine, added to GitHub; import GPG keys; `gh auth login` | `ssh -T git@github.com`; `gpg -K` |
-| M3 | Syncthing identity (S1) | test install: new device. Real install: reuse the Workstation's identity, or a new device (decide at that point) | folders Up to Date |
-| M4 | Tailscale node (N3) | test install: new node. Real install: new node, old one removed in the admin console | `tailscale status` |
-| M5 | Data outside Syncthing (S3) | restore by explicit path: `~/.hermes`, `~/.claude`, `~/.claude.json`, app configs as needed | the app starts with its state |
-| M6 | Docker → podman (E4) | **on the Workstation, before the switch:** export the Docker volumes of the Open WebUI stack (Open WebUI, SearXNG, Tailscale sidecar) and the Hermes sandbox state to the DAS; on the laptop: import into podman volumes, run the compose file with `podman-compose`. The old `migrate-docker-to-podman.sh` is reference material | Open WebUI shows its history; Hermes runs its sandbox |
-| M7 | Win11 VM (V1) | restore `Win11VM.qcow2`, NVRAM, swtpm state and the domain XML; `<uuid>` must equal the swtpm directory name | boots, no BitLocker prompt |
-| M8 | Notepad++ settings (A11) | copy its AppData folder from the Wine prefix into the bottle | settings and sessions are back |
-| M9 | Fingerprint and TPM2+PIN enrollment (P6, P9) | `fprintd-enroll`; `systemd-cryptenroll` on root and swap | checks of P6 and P9 |
-| M10 | Backups running (S2) | first local and cloud run; the old restic repo on the DAS stays read-only | checks of S2a–S2c |
+The checklist lives in the private dotfiles repo (`.migration-prep/MIGRATION.md`): it is
+one-time and full of personal details, while this repo keeps what is reused (image, spec,
+install and recovery docs). It has two parts: **on the Workstation first** (export the
+Docker volumes while Docker exists, record the Cisco facts and how the internal names
+resolve, copy the Notepad++ settings, last backup), then **on the laptop** (Wi-Fi
+profiles, keys, Syncthing and Tailscale identities, data outside Syncthing, Docker →
+podman, the Win11 VM, Bottles, fingerprint and TPM2+PIN enrollment, the VPNs, backups).
+Each item has a check; the rules of section 5 apply.
 
 ## 6. Acceptance checklist
 
@@ -220,12 +211,11 @@ Generated from the Check columns once the tables are confirmed.
 
 ## 7. Open questions
 
-Everything else is confirmed (2026-10-03). Two proposals wait for your answer:
+1. **O1 drift report:** keep it (a short report in the daily routine of anything not
+   declared), or drop it?
 
-1. **D2 Terminal:** Ghostty inside box:dev, with COSMIC Terminal for host administration?
-2. **N4 Cisco:** client in a separate rootful box:vpn (reach is the same for every box,
-   since they share the host network), with NetworkManager-openconnect as the fallback if
-   the in-box client cannot give the host working DNS?
+Evidence still to collect (migration W2, W3): the Cisco login and posture facts, and how
+the internal names resolve on the Workstation today. They decide N6's values, not the design.
 
 ## Change log
 
@@ -244,3 +234,8 @@ Everything else is confirmed (2026-10-03). Two proposals wait for your answer:
   Backups: rsync hard-link snapshots on the DAS, restic to Backblaze B2, scope = all of
   `$HOME` + libvirt. Windscribe via NetworkManager WireGuard plus its app in box:vpn.
   Google in Chrome only (no GNOME pieces). The migration checklist moves to dotfiles.
+- 2026-10-03: D2 confirmed (Ghostty in box:dev). N4: Cisco Secure Client and the
+  Windscribe app in a rootful box:vpn; COSMIC's network menu drives only NetworkManager
+  connections, so Windscribe's WireGuard profiles appear there and Cisco does not. N6 added
+  (internal and `.local` names over the VPN). B2 key model added to S2b. Migration checklist
+  moved to the dotfiles repo. O1 (drift report) carried over from 2026-10-01 as a proposal.
