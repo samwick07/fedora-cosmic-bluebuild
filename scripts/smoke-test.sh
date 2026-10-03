@@ -6,7 +6,8 @@
 #
 #   scripts/smoke-test.sh IMAGE        e.g. ghcr.io/samwick07/fedora-cosmic-frmwrk:latest_linux_amd64
 #
-# CTR=docker to use docker instead of podman. Needs network (DoD PKI fetch).
+# CTR=docker to use docker instead of podman. Run from the repo root (compares
+# files/share/flatpaks.list with the recipe).
 #
 set -uo pipefail
 cd "$(dirname "$(readlink -f "$0")")/.." || exit 2
@@ -26,16 +27,28 @@ check() {  # description, command...
 variant=$(run sh -c '. /usr/lib/os-release; echo "$VARIANT_ID"')
 echo "== $IMG (VARIANT_ID=$variant)"
 
-check "bootc present"            run bootc --version
-check "shipped scripts executable" run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report /usr/bin/cosmic-session-wait; do test -x "$f" || { echo "not executable: $f"; exit 1; }; done'
-check "shipped data readable (644)" run sh -c 'for f in /usr/share/distrobox/distrobox.ini /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf /etc/fedora-cosmic-atomic/restore-allowlist.txt; do [ "$(stat -c %a "$f")" = 644 ] || { stat -c "%a %n" "$f"; exit 1; }; done'
-check "packages installed"       run rpm -q tailscale restic syncthing chezmoi age ghostty starship swtpm edk2-ovmf NetworkManager-openvpn openssl nss-tools distrobox
-check "base fallbacks kept"      run rpm -q firefox toolbox
-check "no stray top-level dirs"  run bash -c 'x=$(ls / | grep -vE "^(afs|bin|boot|dev|etc|home|lib|lib64|media|mnt|opt|ostree|proc|root|run|sbin|srv|sys|sysroot|tmp|usr|var)$"); [ -z "$x" ] || { echo "$x"; exit 1; }'
-check "shell scripts parse"      run sh -c 'for f in /usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/win11-cac /usr/bin/migrate-docker-to-podman.sh /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report /usr/bin/cosmic-session-wait; do bash -n "$f" || exit 1; done'
+BIN="/usr/bin/cosmic-nightly /usr/bin/cosmic-nightly-notify /usr/bin/cosmic-session-wait /usr/bin/win11-cac /usr/bin/cac-status /usr/bin/cosmic-report"
+DATA="/usr/lib/systemd/system/cosmic-nightly.service /usr/lib/systemd/system/cosmic-nightly.timer /etc/xdg/autostart/cosmic-nightly-notify.desktop /usr/share/fedora-cosmic-atomic/flatpaks.list /usr/share/fedora-cosmic-atomic/drift-ignore.regex /usr/share/fedora-cosmic-atomic/nightly.example.env /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf /usr/lib/modules-load.d/i2c-dev.conf /usr/lib/udev/rules.d/60-i2c-uaccess.rules"
+
+check "bootc present"              run bootc --version
+check "shipped scripts executable" run sh -c "for f in $BIN; do test -x \$f || { echo not executable: \$f; exit 1; }; done"
+check "shell scripts parse"        run sh -c "for f in $BIN; do bash -n \$f || exit 1; done"
+check "shipped data readable (644)" run sh -c "for f in $DATA; do [ \$(stat -c %a \$f) = 644 ] || { stat -c '%a %n' \$f; exit 1; }; done"
+# F9: the whole layered set (plus what the base must keep providing)
+check "layered packages (F9)"      run rpm -q qemu-kvm libvirt libvirt-daemon-kvm edk2-ovmf swtpm tailscale NetworkManager-openconnect restic distrobox pcsc-lite pcsc-lite-ccid opensc firefox
+check "nothing extra layered (F9)" run sh -c 'x=$(rpm -q ghostty starship topgrade chezmoi syncthing tmux openssl checkpolicy iio-sensor-proxy NetworkManager-openvpn 2>/dev/null | grep -v "not installed"); [ -z "$x" ] || { echo "$x"; exit 1; }'
+check "no stray top-level dirs"    run bash -c 'x=$(ls / | grep -vE "^(afs|bin|boot|dev|etc|home|lib|lib64|media|mnt|opt|ostree|proc|root|run|sbin|srv|sys|sysroot|tmp|usr|var)$"); [ -z "$x" ] || { echo "$x"; exit 1; }'
+# V4: DoD roots in the system trust, offline
+check "DoD CAs in system trust (V4)" run sh -c 'n=$(trust list | grep -ci "DoD"); [ "$n" -ge 10 ] || { echo "only $n DoD entries"; exit 1; }'
+# J1: the one updater; stages, never applies, never reboots
+check "nightly timer enabled (J1)" run sh -c '[ "$(systemctl is-enabled cosmic-nightly.timer)" = enabled ]'
+check "nightly job never reboots"  run sh -c '! grep -vE "^[[:space:]]*#" /usr/bin/cosmic-nightly | grep -nE "bootc upgrade[^|]*--apply|bootc switch|systemctl (reboot|poweroff|kexec|soft-reboot)|shutdown -r|systemd-inhibit"'
+check "no second updater"          run sh -c '[ "$(systemctl is-enabled bootc-fetch-apply-updates.timer 2>/dev/null)" != enabled ] || { echo "bootc-fetch-apply-updates.timer is enabled"; exit 1; }'
+check "flatpaks.list == recipe"    bash -c "diff <(grep -v '^#' files/share/flatpaks.list | sed '/^\$/d' | sort) <(sed -n '/default-flatpaks/,/scope: user/p' recipes/common-modules.yml | sed -n 's/^ *- \([A-Za-z0-9._-]*\.[A-Za-z0-9._-]*\).*/\1/p' | sort)"
 if [[ "$variant" == frmwrk ]]; then
     check "lid -> suspend-then-hibernate" run grep -q '^HandleLidSwitch=suspend-then-hibernate' /etc/systemd/logind.conf.d/10-lid.conf
-    check "fprintd installed"     run rpm -q fprintd
+    check "fprintd + pam installed"    run rpm -q fprintd fprintd-pam
+    check "TPM2 in the initramfs config (P9)" run grep -q 'tpm2-tss' /usr/lib/dracut/dracut.conf.d/90-tpm2.conf
     # Graphical LUKS prompt; in text mode kernel messages scroll it away.
     check "kargs.d: rhgb quiet"   run sh -c 'k=$(cat /usr/lib/bootc/kargs.d/*.toml 2>/dev/null); for a in rhgb quiet; do printf "%s" "$k" | grep -q "\"$a\"" || { echo "missing karg $a in /usr/lib/bootc/kargs.d"; exit 1; }; done'
 fi
@@ -46,13 +59,6 @@ check "cosmic.desktop -> cosmic-session-wait" run sh -c '
     grep -qx "exec /usr/bin/start-cosmic \"\$@\"" /usr/bin/cosmic-session-wait || { echo "wrapper does not exec start-cosmic"; exit 1; }
     test -x /usr/bin/start-cosmic || { echo "no /usr/bin/start-cosmic"; exit 1; }
     pgrep -u cosmic-greeter -x cosmic-comp; [ $? -le 1 ] || { echo "pgrep cannot resolve user cosmic-greeter"; exit 1; }'
-# Updates are staged, never applied automatically (no surprise reboots).
-check "bootc timer enabled, stage-only" run sh -c '
-    [ "$(systemctl is-enabled bootc-fetch-apply-updates.timer)" = enabled ] || { echo "timer not enabled"; exit 1; }
-    d=/usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/10-stage-only.conf
-    [ "$(stat -c %a $d)" = 644 ] || { echo "drop-in mode $(stat -c %a $d)"; exit 1; }
-    last=$(cat /usr/lib/systemd/system/bootc-fetch-apply-updates.service $d | grep "^ExecStart=" | tail -1)
-    [ "$last" = "ExecStart=/usr/bin/bootc upgrade --quiet" ] || { echo "effective: $last"; exit 1; }'
 # Signing policy must name the published image (fix-signing-registry.sh).
 # Checked by content: the registries.d file name differs between builds.
 check "signing policy for ghcr.io/samwick07/$NAME" run sh -c "
@@ -62,8 +68,6 @@ check "signing policy for ghcr.io/samwick07/$NAME" run sh -c "
     grep -rq 'use-sigstore-attachments: true' /etc/containers/registries.d/ || { echo 'registries.d: sigstore attachments off'; exit 1; }
     test -f /etc/pki/containers/$NAME.pub || { echo 'missing /etc/pki/containers/$NAME.pub'; exit 1; }"
 check "image pubkey == repo cosign.pub" bash -c "cmp <($CTR run --rm '$IMG' cat /etc/pki/containers/$NAME.pub) cosign.pub"
-# CAC: the public DoD bundle downloads and verifies (pinned root, signed sums).
-check "setup-cac.sh --fetch (DoD PKI verified)" run setup-cac.sh --fetch
 # Public repo + public image: no personal values.
 check "leak check: repo"         scripts/check-leaks.sh
 check "leak check: image"        env CTR="$CTR" scripts/check-leaks.sh --image "$IMG"

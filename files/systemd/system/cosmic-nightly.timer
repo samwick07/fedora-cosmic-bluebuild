@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the nightly job (backup, drift report, staged upgrades)
+
+[Timer]
+# After the nightly CI build (06:17 UTC). Persistent: a run missed while the laptop
+# slept or hibernated happens at the next wake.
+OnCalendar=*-*-* 04:30
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

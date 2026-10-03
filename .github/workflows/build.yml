@@ -4,9 +4,9 @@ name: bluebuild
 #   - the base image digest differs from the one the published image was built on
 #     (Fedora pushes cosmic-atomic:44 around 03:10 UTC), or
 #   - no published image carries this commit's <sha7>-44 tag.
-# scripts/smoke-test.sh gates the push. Local builds (docs/local-build.md) work
-# the same way and stay the primary path; this keeps the image current when the
-# laptop is off.
+# scripts/smoke-test.sh gates the push. This is the primary build (free for a
+# public repo); local builds (docs/local-build.md) test a change before pushing.
+# Pull requests that touch the image are built and smoke-tested, never pushed.
 #
 # One-time setup:
 #   - Secret SIGNING_SECRET = contents of cosign.key (the key cosign.pub belongs to).
@@ -17,6 +17,14 @@ name: bluebuild
 on:
   schedule:
     - cron: "17 6 * * *"
+  # Every pull request that changes the image is built and smoke-tested, never pushed.
+  pull_request:
+    paths:
+      - "recipes/**"
+      - "files/**"
+      - "scripts/smoke-test.sh"
+      - "scripts/check-leaks.sh"
+      - ".github/workflows/build.yml"
   workflow_dispatch:
     inputs:
       recipe:
@@ -57,7 +65,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - id: decide
         env:
-          FORCE: ${{ inputs.force || false }}
+          FORCE: ${{ inputs.force || github.event_name == 'pull_request' }}
         run: |
           scripts/ci-should-build.sh "$RECIPE" | tee -a "$GITHUB_OUTPUT"
           grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | sed 's/^reason=/**Decision:** /' >> "$GITHUB_STEP_SUMMARY"
@@ -94,6 +102,7 @@ jobs:
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 
       - name: Registry login
+        if: github.event_name != 'pull_request'
         run: printf '%s' "$BB_PASSWORD" | podman login ghcr.io -u "$BB_USERNAME" --password-stdin
 
       # Build only; nothing leaves the runner unless the smoke test passes.
@@ -110,6 +119,7 @@ jobs:
       # Same build again with --push: every layer is cached, so this tags,
       # pushes and signs what was just tested.
       - name: Push + sign
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
           COSIGN_PASSWORD: ""
@@ -118,4 +128,5 @@ jobs:
           bluebuild build -v -B podman ${CHUNKED:+"$CHUNKED"} --push --registry ghcr.io --registry-namespace samwick07 "$RECIPE"
 
       - name: Verify signature
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: cosign verify --key cosign.pub "${{ needs.check.outputs.image }}:latest" > /dev/null && echo "signature OK" >> "$GITHUB_STEP_SUMMARY"

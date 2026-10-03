@@ -1,0 +1,3 @@
+# DDC/CI (spec P11): the logged-in user may open the i2c buses, so ddcutil runs
+# without root (also from the dev distrobox, which shares /dev).
+SUBSYSTEM=="i2c-dev", KERNEL=="i2c-[0-9]*", TAG+="uaccess"

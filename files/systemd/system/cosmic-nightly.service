@@ -1,0 +1,14 @@
+[Unit]
+Description=Nightly backup, drift report and staged upgrades (never reboots)
+Documentation=file:///usr/bin/cosmic-nightly
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/cosmic-nightly
+# Out of the way of anything interactive; never inhibits sleep (see the script).
+Nice=10
+IOSchedulingClass=idle
+CPUSchedulingPolicy=batch
+TimeoutStartSec=8h

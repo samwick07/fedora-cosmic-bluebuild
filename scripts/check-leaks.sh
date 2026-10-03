@@ -43,13 +43,13 @@ scan_repo() {
 }
 
 scan_image() {
-    local img="$1" dirs="/usr/bin /usr/share/distrobox /etc/fedora-cosmic-atomic /etc/profile.d /etc/environment.d /etc/containers /etc/systemd /usr/lib/systemd/system /usr/share/fedora-cosmic-atomic"
+    local img="$1" dirs="/usr/bin /etc/containers /etc/systemd /etc/xdg/autostart /usr/lib/systemd/system /usr/share/fedora-cosmic-atomic"
     local pat="$GENERIC"
     [[ -n "${SITE_USER:-}" ]] && pat+="|\\b${SITE_USER}\\b"
     local v; for v in $KNOWN_UUIDS; do pat+="|$v"; [[ ${#v} -gt 9 ]] && pat+="|${v:0:8}"; done
     # Only files this repo puts into the image; base packages may legitimately
     # contain UUIDs (systemd units, policy files).
-    local ours="/usr/bin/post-install-setup.sh /usr/bin/setup-cac.sh /usr/bin/enable-hibernation.sh /usr/bin/migrate-docker-to-podman.sh /usr/bin/win11-cac /usr/bin/install-to-disk.sh /usr/bin/prepare-disk.sh /usr/bin/make-target-env.sh /usr/bin/install-atomic.sh /usr/bin/cosmic-report /usr/share/distrobox/distrobox.ini /etc/fedora-cosmic-atomic /etc/profile.d/amd-common.sh /etc/environment.d/50-amd-common.conf"
+    local ours="/usr/bin/cosmic-nightly /usr/bin/cosmic-nightly-notify /usr/bin/cosmic-session-wait /usr/bin/win11-cac /usr/bin/cac-status /usr/bin/cosmic-report /usr/bin/enable-hibernation.sh /usr/lib/systemd/system/cosmic-nightly.service /usr/lib/systemd/system/cosmic-nightly.timer /etc/xdg/autostart/cosmic-nightly-notify.desktop /usr/share/fedora-cosmic-atomic"
     local hits
     hits=$("${CTR:-podman}" run --rm "$img" sh -c "grep -rnIE '$pat' $ours 2>/dev/null; grep -rlIE 'ts\.net|Military' $dirs 2>/dev/null" | grep -vE "$ALLOW" || true)
     report "$hits"

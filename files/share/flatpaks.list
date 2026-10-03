@@ -1,0 +1,14 @@
+# System flatpaks the image installs (default-flatpaks in recipes/common-modules.yml).
+# The nightly drift report compares the machine against this list; the smoke test
+# checks that it matches the recipe.
+com.collaboraoffice.Office
+org.signal.Signal
+org.videolan.VLC
+org.inkscape.Inkscape
+org.gimp.GIMP
+org.darktable.Darktable
+com.calibre_ebook.calibre
+org.remmina.Remmina
+com.usebottles.bottles
+com.github.tchx84.Flatseal
+org.virt_manager.virt-manager
