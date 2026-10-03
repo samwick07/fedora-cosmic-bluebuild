@@ -3,7 +3,7 @@
 Read this first in every session, then `docs/end-state.md`. Keep it short: where things
 stand and the exact next step. No personal values here (write `$SITE_USER`).
 
-Last updated: 2026-10-03 15:15 EDT
+Last updated: 2026-10-03 15:45 EDT
 
 ## Where things stand
 - **Refactor in progress.** The first test install (2TB, 2026-10-02/03) showed that the
@@ -22,26 +22,29 @@ Last updated: 2026-10-03 15:15 EDT
 - **Evidence so far:** fingerprint `sudo` is in daily use on the Workstation → P6 keep.
 - **Held fixes** from the first run are on branch `held/first-run-fixes` (scrubbed,
   not for merge as-is). Take what the spec asks for (the flatpak retry drop-ins → N1).
-- **Spec confirmed** (2026-10-03) except O1 (drift report, spec section 7). F9: base
-  image as close to stock as possible (layered: libvirt stack, Tailscale). Nightly build
-  in GitHub Actions. Backups: rsync snapshots on the DAS + restic to Backblaze B2. VPNs:
-  Cisco Secure Client and the Windscribe app in a rootful `vpn` distrobox; Windscribe
-  also as NetworkManager WireGuard (COSMIC network menu); internal names over the VPN (N6).
+- **Spec confirmed** (2026-10-03) except O1 (drift report). F9: base image as close to
+  stock as possible (layered: libvirt stack, Tailscale, and NetworkManager-openconnect for
+  the VPN trial). Nightly build in GitHub Actions. Backups: rsync snapshots on the DAS +
+  restic to Backblaze B2.
+- **VPN trial** (N4/N5): NetworkManager-openconnect (COSMIC network menu), Cisco Secure
+  Client in the rootful `vpn` box, Windscribe as native NetworkManager WireGuard and as its
+  app in `vpn`. Try each on the 2TB, keep what works; the rest is removed. N6 (`.local`
+  name over the VPN) postponed: the name moves to a real domain.
+- **Rebuild plan:** `docs/rebuild-plan.md` lists keep/change/retire for every file in both
+  repos.
 - **One status file:** this one. `dotfiles/.migration-prep/HANDOFF.md` keeps only private
   facts and rules; the one-time migration checklist is `dotfiles/.migration-prep/MIGRATION.md`.
 - **Project:** linked to this repo through GitHub; the dotfiles repo is to be linked too
   (it holds the private journal, lessons and migration checklist).
 
 ## Next (in order)
-1. On the Workstation (MIGRATION.md part A, read-only): W2 Cisco facts, W3 how the
-   internal names resolve (`logs/w3-cdn-local.log`). W1 (Docker volume export) any time
-   before the laptop moves.
-2. Keep/retire list for this repo (old installer, post-install restore steps, test
-   scripts, Homebrew/Docker remnants) and for the dotfiles (Brewfile, run_once chain).
-3. Rebuild the image layer per F9 (libvirt + Tailscale + config files + flatpak list);
-   install on the 2TB (stock ISO + `bootc switch`), nothing restored; image-layer checks.
-4. User layer on that bare image (dotfiles, boxes `dev`/`claude`/`rocm`/`vpn`); its checks.
-5. Migration part B on the 2TB.
+1. Image PR per `docs/rebuild-plan.md` (recipes + files, smoke test); nightly CI builds it.
+2. Docs PR: `docs/install.md` (L1), retire the old guides, update CLAUDE.md/README.
+3. Dotfiles PR: externals, boxes (`dev`/`claude`/`rocm`/`vpn`), topgrade routine, backups.
+4. Workstation, read-only, before the laptop moves: MIGRATION W1 (Docker volumes), W2
+   (Cisco facts); W3 skipped while N6 is postponed.
+5. 2TB: install (stock ISO + `bootc switch`) → image checks → user layer → its checks
+   (incl. the VPN trial) → MIGRATION part B.
 
 ## Facts that are easy to forget
 - Restic: `/run/media/$SITE_USER/DAS/frmwrk-restic-repo`, password file
