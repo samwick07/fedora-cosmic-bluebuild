@@ -1,0 +1,14 @@
+[Unit]
+Description=Catch up a missed backup (restore point within a day, spec R1)
+Documentation=file:///usr/bin/cosmic-nightly
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Exits at once unless a copy is older than 24 h and its target is reachable now.
+ExecStart=/usr/bin/cosmic-nightly --catch-up
+Nice=10
+IOSchedulingClass=idle
+CPUSchedulingPolicy=batch
+TimeoutStartSec=8h
