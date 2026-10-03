@@ -21,7 +21,7 @@ list to port.
 | F5 | Encrypted disk (LUKS2: root and swap) | Laptop leaves the house | One passphrase at boot and at resume. |
 | F6 | Test on the 2TB drive first; the 4TB Workstation is untouched until this spec's acceptance checks pass | The Workstation is the daily driver | Two installs of the same spec; the second must need no fixes. |
 | F8 | **Backups follow 3-2-1**: local copy as plain files on the DAS (later a NAS), off-site copy encrypted (block-level) in the cloud | Data safety without lock-in to one target | Two tools, one trigger: the daily update routine (S2). Targets are configuration, so a NAS can replace the DAS. |
-| F9 | **Base image as close to stock as possible.** An RPM is layered only when it needs the host kernel or a host service, or when the root nightly job (J1) runs it (root must never execute files the user can write); configuration files are fine. Everything else is a flatpak, a distrobox, or a single binary in `$HOME` installed by the user layer | Fewer layered packages: smaller image, fewer update conflicts, closer to what Fedora tests | Layered: the libvirt/QEMU/swtpm stack (V1), Tailscale (N3), restic and distrobox (J1), the CAC stack pcsc-lite/CCID/OpenSC (V3, already in the base) and, during the VPN trial, NetworkManager-openconnect (N4). Not layered: Homebrew, Ghostty, starship, topgrade, chezmoi, Syncthing, `openssl`, other NetworkManager VPN plugins. |
+| F9 | **Base image as close to stock as possible.** An RPM is layered only when it needs the host kernel or a host service, when the root nightly job (J1) runs it (root must never execute files the user can write), or when it belongs to the virtualization stack, which is layered **whole, as Bluefin DX does** (V1, A14); configuration files are fine. CLI tools come from **Homebrew** (C1), shipped as files by the BlueBuild `brew` module, not as an RPM. Everything else is a flatpak or a distrobox | Fewer layered packages: smaller image, fewer update conflicts, closer to what Fedora and Universal Blue test | Layered: the virtualization stack incl. virt-manager, virt-viewer and SPICE USB redirection (V1), Tailscale (N3), restic and distrobox (J1), the CAC stack pcsc-lite/CCID/OpenSC (V3, already in the base) and, during the VPN trial, NetworkManager-openconnect (N4). Not layered: Ghostty, starship, topgrade, chezmoi, Syncthing, `openssl`, other NetworkManager VPN plugins. |
 | F7 | Names: images `fedora-cosmic-frmwrk` / `-dsktp`; hosts `frmwrk` / `dsktp` | "cosmic-desktop" reads as the DE | The desktop (dsktp) is out of scope until the laptop has run 3–6 months. |
 
 ## 2. How to read the requirement tables
@@ -30,7 +30,7 @@ list to port.
   - `image` = recipe (needs the kernel, systemd, `/dev`, or must exist before the user layer)
   - `flatpak` = GUI app
   - `box:<name>` = a distrobox: `dev` (Fedora, rootless, daily work), `claude` (Ubuntu), `rocm`, `vpn` (rootful, see N4)
-  - `user` = single binaries in `~/.local/bin` (chezmoi externals) or `uv` tools, installed by the user layer
+  - `brew` = a Homebrew formula in `~/.Brewfile` (dotfiles), installed by the user layer with `brew bundle`; Homebrew itself ships in the image (C1)
   - `dotfiles` = user config (chezmoi)
   - `data` = restored or synced, never installed
   - `manual` = a documented one-time step
@@ -59,7 +59,7 @@ list to port.
 | P8 | Power profiles, thermal | base image | day-1 | tuned-ppd + thermald enabled | confirmed | `powerprofilesctl` |
 | P9 | TPM2 unlock of LUKS (root and swap) **with a PIN** | image (dracut `tpm2-tss` config) + manual (`systemd-cryptenroll --tpm2-device=auto --tpm2-with-pin=yes`) | week-1 | clevis-luks + clevis-pin-tpm2 installed on the Workstation | confirmed | boot and resume ask for the short PIN; the passphrase still works |
 | P10 | Printing (CUPS, network and Bluetooth printers) | base image | week-1 | cups enabled | confirmed | a test page prints |
-| P11 | External monitor brightness (DDC/CI) | image: i2c udev rule + `i2c-dev` module-load (config files); `ddcutil` in box:dev | later | installed | confirmed | `ddcutil detect` lists the monitor |
+| P11 | External monitor brightness (DDC/CI) | image: i2c udev rule + `i2c-dev` module-load (config files); `ddcutil` from brew (the uaccess rule works for any binary) | later | installed | confirmed | `ddcutil detect` lists the monitor |
 
 ### 3.2 Desktop and shell
 
@@ -67,9 +67,9 @@ list to port.
 | --- | --- | --- | --- | --- | --- | --- |
 | D1 | COSMIC session starts on every login (no black screen) | image | day-1 | — | confirmed | 10 logins; `journalctl -t cosmic-session-wait` |
 | D2 | Terminal: **Ghostty in box:dev** (COPR inside the box, exported to the menu; opens a shell in `dev`, where daily work happens). COSMIC Terminal (stock) for host administration | box:dev | day-1 | Ghostty autostarted daily; no official flatpak | confirmed | Ghostty opens from the launcher into `dev`; COSMIC Terminal opens a host shell |
-| D3 | bash + starship prompt | user + dotfiles | day-1 | starship in use | confirmed | prompt renders on the host and in boxes |
+| D3 | bash + starship prompt | brew + dotfiles | day-1 | starship in use | confirmed | prompt renders on the host and in boxes |
 | D4 | tmux | — | — | not in shell history | drop | — |
-| D5 | topgrade for a manual update run (the nightly job J1 does the scheduled one) | user + dotfiles | later | 57 uses | confirmed | `topgrade` updates image (staged), flatpaks, boxes |
+| D5 | topgrade for a manual update run (the nightly job J1 does the scheduled one) | brew + dotfiles | later | 57 uses | confirmed | `topgrade` updates image (staged), flatpaks, boxes |
 | D6 | Default browser: Google Chrome (box:dev); Firefox (base) as fallback | A2 | day-1 | Chrome is the https/html handler | confirmed | links open in Chrome |
 | D7 | Window tiling | COSMIC built-in | day-1 | GNOME Tactile extension | confirmed | tile shortcuts work |
 | D8 | PDF viewer: Chrome's built-in viewer; a flatpak only if annotation is missed | A2 | day-1 | Evince is the PDF handler | confirmed | a PDF opens |
@@ -90,12 +90,12 @@ list to port.
 
 | ID | Need | Lane | When | Evidence | State | Check |
 | --- | --- | --- | --- | --- | --- | --- |
-| S1 | Syncthing with dsktp: Documents, Music, Pictures, Videos, Downloads, Desktop, Public, Templates, Applications, VMs, Sync | user (binary) + dotfiles (user unit) | day-1 | 11 folders; started from an autostart entry today; one malformed folder entry (empty id, path `~`) to fix | confirmed | folders Up to Date |
+| S1 | Syncthing with dsktp: Documents, Music, Pictures, Videos, Downloads, Desktop, Public, Templates, Applications, VMs, Sync | brew (binary) + dotfiles (user unit) | day-1 | 11 folders; started from an autostart entry today; one malformed folder entry (empty id, path `~`) to fix | confirmed | folders Up to Date |
 | S2a | Local backup to the DAS as **plain files**: `rsync --link-dest` hard-link snapshots (unchanged files cost no space; restore = copy from a dated folder). Keep 7 daily, 4 weekly, 12 monthly. VM disk images are copied separately, only when changed and the VM is off, last 2 kept. Skipped (and reported) when the DAS is not attached | image (J1) + private config | week-1 | today: restic to the DAS, run by hand | confirmed | a file from yesterday's snapshot opens directly from the DAS |
 | S2b | Off-site: **restic to Backblaze B2**, encrypted on the laptop before upload; same scope (S2d) and retention. VM disks uploaded under the same rule as S2a (VM off, disk changed). The laptop's B2 key cannot delete; the bucket keeps hidden versions 30 days; `forget --prune` only with a separate admin key; monthly `restic check --read-data-subset=5%` | image (J1) + private config | week-1 | none today (an off-site design from 2026-10-01 was postponed until now) | confirmed | `restic snapshots` lists today's; a single file and a whole folder restore from B2 |
 | S2c | Trigger: the nightly job (J1); an hourly catch-up repeats a copy that is older than 24 h as soon as its target is reachable (R1) | image (J1) | week-1 | — | confirmed | J1's report shows a backup within the last 26 h |
 | S2d | Scope: all of `$HOME` (dotfiles and Downloads included; minus `~/.cache`, Trash and container image layers — container **volumes** are included); **all of `/etc`**; **`/var` state** — everything in `/var` except `/var/home` (backed up as `$HOME`), caches, `/var/tmp`, logs, installed flatpaks, container image layers and the VM disks (S2a/S2b) — so Bluetooth pairings, fingerprints, libvirt NVRAM and swtpm, rootful container volumes, `/var/roothome`, `/usr/local` and `/opt` come back; the machine manifest (R1). Targets are configuration in a private `/etc` file (DAS → NAS later; B2 bucket and keys). The old restic repo on the DAS stays read-only for the migration | image (J1) + private config | week-1 | home ≈ 750 GB + VM disks | confirmed | a VM restores from backup and boots; a Bluetooth device pairs again without re-pairing after a restore |
-| R1 | **Restore point within a day.** A restore or rebuild returns to the previous day's state; at worst one day of work or configuration drift is lost. Each night J1 first writes a **machine manifest** (booted image digest, kernel arguments, layered packages, `/etc` changes, enabled units, flatpaks with origin and branch, the packages in every box, disk layout), then backs up S2d. Restore rules: `docs/restore.md`. Not covered: files a vendor installer put inside a box (only its package list is kept) and a VM disk while its VM keeps running (copied the first night it is off) | image (J1) + private config | week-1 | today: home only, restored by allowlist | confirmed | J1's report: restore point < 26 h; a test restore brings back yesterday's `/etc` file, a Bluetooth pairing and a box's package list |
+| R1 | **Restore point within a day.** A restore or rebuild returns to the previous day's state; at worst one day of work or configuration drift is lost. Each night J1 first writes a **machine manifest** (booted image digest, kernel arguments, layered packages, `/etc` changes, enabled units, flatpaks with origin and branch, Homebrew versions, the packages in every box, disk layout), then backs up S2d. Restore rules: `docs/restore.md`. Not covered: files a vendor installer put inside a box (only its package list is kept) and a VM disk while its VM keeps running (copied the first night it is off) | image (J1) + private config | week-1 | today: home only, restored by allowlist | confirmed | J1's report: restore point < 26 h; a test restore brings back yesterday's `/etc` file, a Bluetooth pairing and a box's package list |
 | S3 | Data outside Syncthing to carry over: `~/.ssh`, `~/.gnupg`, `~/.hermes`, `~/.claude*`, app configs as needed (not `~/.config` or `~/.local` wholesale) | migration (M5) | day-1 | `~/.config` 27 GB, `~/.local` 77 GB | confirmed | migration checklist |
 
 ### 3.5 Applications (GUI)
@@ -115,7 +115,7 @@ list to port.
 | A11 | Notepad++ (and other small Windows apps) without the VM | flatpak (Bottles, one bottle per app, menu launcher) | week-1 | the most-used Wine app; a ~2 GB Wine prefix today | confirmed |
 | A12 | RDP client (Remmina) | flatpak | later | freerdp + GNOME Connections installed | confirmed |
 | A13 | Flatseal | flatpak | later | installed | confirmed (Gear Lever: drop) |
-| A14 | virt-manager | flatpak if it manages `qemu:///system` on the test install; else image | week-1 | follows V1 | confirmed |
+| A14 | virt-manager and virt-viewer | image (RPMs, the whole stack as in Bluefin DX). Not the flatpak: SPICE click-to-redirect of USB devices is the daily CAC path (V2) and does not work reliably from the sandbox | day-1 | follows V1; used daily | confirmed |
 | A15 | Mail, calendar, contacts: Google, in Chrome only; nothing from GNOME on COSMIC | A2 | day-1 | all Google via Chrome today | confirmed |
 | A16 | Office: **Collabora Office** (`com.collaboraoffice.Office`) instead of LibreOffice | flatpak | week-1 | preferred over plain LibreOffice | confirmed |
 | A16b | Signal, VLC, Inkscape | flatpak | later | used now and then | confirmed |
@@ -124,27 +124,28 @@ list to port.
 
 ### 3.6 CLI tools
 
-Evidence: Homebrew holds only three tools (chezmoi, cosign, lazydocker), so it does not
-earn its own lane. Most-used CLI tools from shell history: docker (83), topgrade (57),
+Homebrew is the CLI lane, as on Universal Blue (decided 2026-10-03, reversing the earlier
+drop): one declarative `~/.Brewfile`, upgraded by J1 as the user, visible on the host and
+in every box through `/home`. Earlier evidence: Homebrew held only three tools. Most-used CLI tools from shell history: docker (83), topgrade (57),
 btop (47), lazydocker (30), git, nmap, ssh, fastfetch, gh, curl.
 
 | ID | Tools | Lane | State |
 | --- | --- | --- | --- |
-| C1 | chezmoi, starship, topgrade, gh, btop, fastfetch, syncthing, uv | user (single binaries via chezmoi externals / `uv`) | confirmed |
+| C1 | chezmoi, starship, topgrade, gh, btop, fastfetch, syncthing, uv, lazydocker (against the user podman socket), cosign, sevenzip, ddcutil, podman-compose | brew | confirmed |
 | C1a | restic, distrobox | image (run as root by J1; the user uses the same copies) | confirmed |
 | C1b | git | base image if present, else box:dev | confirmed |
-| C1c | nmap, 7zip, ddcutil | box:dev | confirmed |
-| C2 | lazydocker (against the user podman socket), cosign | user | confirmed |
-| C3 | Homebrew | — | drop (three tools; moved to C1/C2) |
+| C1c | nmap (raw scans need root; brew binaries never run under sudo) | box:dev | confirmed |
+| C2 | Claude Code CLI | box:claude (E1); the official `claude-code` cask supports Linux if it ever moves to brew | confirmed |
+| C3 | Homebrew itself | image (BlueBuild `brew` module: unpacked to `/home/linuxbrew` at first boot, offline; analytics off; its update timers off, J1 upgrades) | confirmed |
 
 ### 3.7 Development environments
 
 | ID | Need | Lane | When | Evidence | State |
 | --- | --- | --- | --- | --- | --- |
 | E1 | Claude Code CLI, exported with `distrobox-export` | box:claude (Ubuntu, beside Claude Desktop); **not** on the host | day-1 | a native host install exists today | confirmed |
-| E2 | Python data-science / ML (Jupyter, PyTorch, scikit-learn, Hugging Face, spaCy, Optuna): `uv` projects in `$HOME` for CPU work, box:rocm for GPU; never `pip --user` | user + box:rocm | week-1 | large `pip --user` stack incl. useless CUDA wheels | confirmed |
+| E2 | Python data-science / ML (Jupyter, PyTorch, scikit-learn, Hugging Face, spaCy, Optuna): `uv` (brew) projects in `$HOME` for CPU work, box:rocm for GPU; never `pip --user` | user + box:rocm | week-1 | large `pip --user` stack incl. useless CUDA wheels | confirmed |
 | E3 | GPU compute (ROCm on the 780M) | box:rocm | later | mainly for dsktp; useful on the laptop | confirmed |
-| E4 | Containers: **podman only** (base); `podman-compose` (uv tool); user `podman.socket` for Docker-API tools. No Docker Engine | base + user | week-1 | Docker workloads migrate (M6) | confirmed | the Open WebUI stack and the Hermes sandbox run under podman |
+| E4 | Containers: **podman only** (base); `podman-compose` (brew); user `podman.socket` for Docker-API tools. No Docker Engine | base + brew | week-1 | Docker workloads migrate (M6) | confirmed | the Open WebUI stack and the Hermes sandbox run under podman |
 | E5 | Hermes agent (gateway user service, sandbox in podman); reaches the work VPN (N4 check) | user + E4 | week-1 | 46 uses, 15 GB state | confirmed |
 | E6 | Other AI CLIs: Gemini CLI, OpenCode, browser-use | box:dev (Node, uv), bins exported to the host | later | installed on the host today | confirmed |
 | E7 | Java (Temurin) | — | — | repo enabled | drop |
@@ -155,8 +156,8 @@ btop (47), lazydocker (30), git, nmap, ssh, fastfetch, gh, curl.
 
 | ID | Need | Lane | When | Evidence | State | Check |
 | --- | --- | --- | --- | --- | --- | --- |
-| V1 | Win11 VM (virtio, Secure Boot + TPM in the guest), same disk as today | image (libvirt stack; F9 exception) + migration (M7) | week-1 | the old Windows dev-eval VM and the Fedora COSMIC test VM are dropped | confirmed | boots, no BitLocker prompt |
-| V2 | **CAC in the Win11 VM (must):** the reader is passed into the VM; the Windows app that needs the VM also needs the card | image (`win11-cac`, libvirt) | day-1 | the Windows app relies on CAC | confirmed | `sudo win11-cac attach` → `certutil -scinfo` lists the card → the Windows app signs in with the card → `detach` returns the reader to the host |
+| V1 | Win11 VM (virtio, Secure Boot + TPM in the guest), same disk as today | image (the whole virtualization stack, A14; libvirt group for wheel members and an SELinux relabel of `/var/lib/libvirt` at boot, as Bluefin DX) + migration (M7) | week-1 | the old Windows dev-eval VM and the Fedora COSMIC test VM are dropped | confirmed | boots, no BitLocker prompt |
+| V2 | **CAC in the Win11 VM (must):** the reader is passed into the VM; the Windows app that needs the VM also needs the card. **Daily path: SPICE click-to-redirect** of the reader in virt-manager / virt-viewer (needs `qemu-device-usb-redirect` and the SPICE USB ACL helper, both in the image). Fallback without a SPICE window: `sudo win11-cac attach` (host-side hostdev) | image (virtualization stack, `win11-cac`) | day-1 | SPICE redirection in daily use on the Workstation | confirmed | redirect the reader from the VM window → `certutil -scinfo` lists the card → the Windows app signs in with the card → un-redirect returns it to the host; the same with `win11-cac attach`/`detach` |
 | V3 | **CAC on the host (must), in two browsers:** (a) **Chrome in box:dev** — opensc in the box reaches the host's `pcscd` through the socket; DoD certs and the OpenSC module in `~/.pki/nssdb`, set up by the user layer with a timeout; (b) **Firefox (base)** — OpenSC through p11-kit (Fedora's Firefox loads it), DoD roots from the system trust (V4). If the 2TB test shows OpenSC missing in Firefox, the image adds a Firefox enterprise policy (`SecurityDevices`); not shipped by default, to avoid the card appearing twice | image + box:dev + dotfiles | day-1 | user NSS db and a smart-card script in use today | confirmed | PIN prompt and successful login on a DoD site in Chrome **and** in Firefox; `cac-status` |
 | V4 | **DoD PKI roots baked into the image** at build time: the public DoD bundle is downloaded and verified against a pinned root in CI, the roots go into the system trust (`/usr/share/pki/ca-trust-source/anchors`); the nightly build keeps them current | image (build step) | day-1 | today: fetched at runtime by `setup-cac.sh --system` (needed network and the `openssl` CLI) | confirmed | `trust list` shows the DoD roots on a fresh install with no network |
 
@@ -176,8 +177,8 @@ btop (47), lazydocker (30), git, nmap, ssh, fastfetch, gh, curl.
 | L1 | Install path | **Stock Fedora COSMIC Atomic ISO** (Anaconda), then `bootc switch` to the signed image. Anaconda custom partitioning: ESP, ext4 /boot, LUKS2 swap ≥ RAM, LUKS2 btrfs root, one passphrase. First `sudo bootc switch ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` (unverified), reboot, then `sudo rpm-ostree rebase ostree-image-signed:docker://ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` (the signing policy ships in the image; `docs/local-build.md`). Then check kargs (`rd.luks.uuid` for swap, `resume=`); `enable-hibernation.sh` adds what is missing. Secure Boot off after install (F2). Retires `install-atomic.sh`, `prepare-disk.sh`, `make-target-env.sh`, `install-to-disk.sh`. | **confirmed** 2026-10-03 |
 | L2 | Updates: the nightly job (J1) runs `bootc upgrade` without `--apply`: the new image is **staged** and applies at the next reboot you choose. **Nothing ever reboots the machine automatically.** J1 is the only updater (the old stage-only timer retires) | image (J1) | confirmed |
 | L3 | Rollback: previous deployment in the GRUB menu | built in | confirmed |
-| J1 | **One nightly job** (systemd timer, ~04:30, after the CI build; `Persistent=true` so a run missed during sleep or hibernation happens at the next wake; idle CPU/IO priority): **0** machine manifest (R1) → **1** backup (S2a if the DAS is attached, S2b if online) → **2** drift report (O1) → **3** upgrades: `bootc upgrade` staged (never `--apply`, never reboots), flatpaks, distroboxes (incl. the rootful `vpn`), firmware metadata → **4** report: a desktop notification at the next login and a log, failures first, with the age of the restore point. Runs as a system service; user-level steps run as the user. Each step runs even if an earlier one failed, and the report says which. An hourly catch-up timer runs steps 0–1 only, and only when a copy is older than 24 h and its target is reachable (R1); one run at a time | image (script + timers) + private config | week-1 | today: backup and updates by hand | confirmed | after a night: the report lists backup, drift and upgrade results; `bootc status` shows a staged image; uptime unchanged |
-| O1 | Drift report: what is on the machine that the spec and the dotfiles do not declare — `/etc` changes against the image (`ostree admin config-diff`), packages layered by hand (`rpm-ostree status`), flatpaks outside the list, boxes and their packages vs. their definitions, `chezmoi status`, enabled units. Prints only differences | image (J1 step 2) | week-1 | design agreed in principle 2026-10-01 | confirmed | a hand-made change (e.g. an `/etc` edit) appears in the next report |
+| J1 | **One nightly job** (systemd timer, ~04:30, after the CI build; `Persistent=true` so a run missed during sleep or hibernation happens at the next wake; idle CPU/IO priority): **0** machine manifest (R1) → **1** backup (S2a if the DAS is attached, S2b if online) → **2** drift report (O1) → **3** upgrades: `bootc upgrade` staged (never `--apply`, never reboots), flatpaks, Homebrew (as the user), distroboxes (incl. the rootful `vpn`), firmware metadata → **4** report: a desktop notification at the next login and a log, failures first, with the age of the restore point. Runs as a system service; user-level steps run as the user. Each step runs even if an earlier one failed, and the report says which. An hourly catch-up timer runs steps 0–1 only, and only when a copy is older than 24 h and its target is reachable (R1); one run at a time | image (script + timers) + private config | week-1 | today: backup and updates by hand | confirmed | after a night: the report lists backup, drift and upgrade results; `bootc status` shows a staged image; uptime unchanged |
+| O1 | Drift report: what is on the machine that the spec and the dotfiles do not declare — `/etc` changes against the image (`ostree admin config-diff`), packages layered by hand (`rpm-ostree status`), flatpaks outside the list, Homebrew formulae missing from or not in `~/.Brewfile`, boxes and their packages vs. their definitions, `chezmoi status`, enabled units. Prints only differences | image (J1 step 2) | week-1 | design agreed in principle 2026-10-01 | confirmed | a hand-made change (e.g. an `/etc` edit) appears in the next report |
 | L4 | Rescue: the 2TB test drive, after the test, as a bootable spare | — | confirmed |
 
 ## 5. How the end state is reached (bring-up model)
@@ -252,3 +253,4 @@ Generated from the Check columns once the tables are confirmed.
   must never execute user-writable files); Firefox gets OpenSC through p11-kit, the
   enterprise policy only if the test shows it missing. Implementation: PR #7.
 - 2026-10-03: R1 added: a restore or rebuild returns to the previous day's state. Backup scope (S2d) now all of `/etc` and the state in `/var`; a nightly machine manifest; VM disks off-site under the same rule as the local copy; an hourly catch-up keeps the restore point within a day.
+- 2026-10-03: the whole virtualization stack is layered like Bluefin DX, incl. virt-manager and virt-viewer (A14): SPICE click-to-redirect is the daily CAC path into the VM (V2), and the flatpak cannot do it reliably. Homebrew becomes the CLI lane (C1–C3, reversing the earlier drop); J1 upgrades it as the user, O1 and R1 cover it.

@@ -6,9 +6,11 @@
 #
 # F9 — BASE IMAGE AS CLOSE TO STOCK AS POSSIBLE:
 #   An RPM is layered only when it needs the host kernel or a host service, or when
-#   the root nightly job runs it (root must never execute files the user can write).
-#   Configuration files are fine. Everything else is a flatpak, a distrobox
-#   (dotfiles: dev, claude, rocm, vpn) or a single binary in $HOME (dotfiles).
+#   the root nightly job runs it (root must never execute files the user can write),
+#   or when it belongs to the virtualization stack, which is layered whole as Bluefin
+#   DX does (V1). Configuration files are fine. CLI tools come from Homebrew (the
+#   brew module below ships it; the Brewfile is in the dotfiles), GUI apps are
+#   flatpaks, toolchains and GUI dev apps live in distroboxes (dotfiles).
 #
 # OSTREE PATH RULES: ship under /usr and /etc only. /usr/local -> /var/usrlocal,
 # /opt -> /var/opt, /home -> /var/home; anything written under /var at build time is
@@ -27,13 +29,6 @@ modules:
     install:
       install-weak-deps: false
       packages:
-        # V1: Win11 VM (KVM, libvirt modular daemons, UEFI + Secure Boot, TPM 2.0)
-        - qemu-kvm
-        - libvirt
-        - libvirt-daemon-kvm
-        - edk2-ovmf
-        - swtpm
-        - swtpm-tools
         # N3: Tailscale (host daemon, /dev/net/tun)
         - tailscale
         # N4: VPN trial — Cisco (AnyConnect protocol) from COSMIC's network menu.
@@ -48,6 +43,27 @@ modules:
         - pcsc-lite-ccid
         - opensc
 
+  # V1, A14: the whole virtualization stack, layered like Bluefin DX's (weak deps ON,
+  # as dnf installs it everywhere else), so virt-manager, SPICE consoles and SPICE USB
+  # redirection (the daily CAC path into the Win11 VM, V2) are the tested Fedora set.
+  - type: dnf@v1
+    install:
+      packages:
+        - qemu-kvm
+        - qemu-img
+        - qemu-char-spice                 # SPICE channels (console, USB redirection)
+        - qemu-device-usb-redirect        # usbredir devices in the guest (V2)
+        - qemu-device-display-virtio-gpu
+        - qemu-device-display-virtio-vga
+        - libvirt
+        - libvirt-daemon-kvm
+        - libvirt-nss                     # resolve VM names on the host
+        - edk2-ovmf                       # UEFI + Secure Boot firmware (Win11)
+        - swtpm                           # TPM 2.0 for Win11
+        - swtpm-tools
+        - virt-manager
+        - virt-viewer
+
   # ─────────────────────────────────────────────
   # V4: DoD PKI roots in the system trust (build step, verified, no runtime fetch)
   # ─────────────────────────────────────────────
@@ -56,22 +72,14 @@ modules:
       - install-dod-roots.sh
 
   # ─────────────────────────────────────────────
-  # SERVICES
+  # C1: Homebrew is the CLI lane (as on Universal Blue). The module ships Homebrew in
+  # the image; brew-setup.service unpacks it to /home/linuxbrew at first boot, offline.
+  # Updates are the nightly job's (J1, as the user), so the module's timers stay off.
   # ─────────────────────────────────────────────
-  # libvirt runs as modular daemons on Fedora. Do NOT enable libvirtd.service.
-  - type: systemd@v1
-    system:
-      enabled:
-        - tailscaled.service
-        - pcscd.socket
-        - virtqemud.socket
-        - virtnetworkd.socket
-        - virtstoraged.socket
-        - virtnodedevd.socket
-        - virtsecretd.socket
-        - virtinterfaced.socket
-        - cosmic-nightly.timer          # J1: backup, drift, staged upgrades; never reboots
-        - cosmic-nightly-catchup.timer  # R1: repeats a missed backup within the day
+  - type: brew
+    auto-update: false
+    auto-upgrade: false
+    brew-analytics: false
 
   # ─────────────────────────────────────────────
   # FLATPAKS (GUI apps; spec 3.5). Keep in step with files/share/flatpaks.list
@@ -94,7 +102,6 @@ modules:
           - org.remmina.Remmina             # A12 RDP
           - com.usebottles.bottles          # A11 Notepad++ and other small Windows apps
           - com.github.tchx84.Flatseal      # A13
-          - org.virt_manager.virt-manager   # A14 trial: manages qemu:///system? else layer it
       - scope: user
 
   # ─────────────────────────────────────────────
@@ -145,13 +152,41 @@ modules:
         destination: /usr/lib/modules-load.d/i2c-dev.conf
       - source: lib/60-i2c-uaccess.rules
         destination: /usr/lib/udev/rules.d/60-i2c-uaccess.rules
+      # V1: libvirt housekeeping, as Bluefin DX does it
+      - source: systemd/system/libvirt-relabel.service
+        destination: /usr/lib/systemd/system/libvirt-relabel.service
+      - source: systemd/system/libvirt-user-groups.service
+        destination: /usr/lib/systemd/system/libvirt-user-groups.service
+      - source: scripts/libvirt-user-groups.sh
+        destination: /usr/libexec/libvirt-user-groups
 
   # git does not reliably preserve modes through the build context; with umask 077
   # data files would land 0600 and the user session could not read them.
   - type: script@v2
     snippets:
-      - "chmod 0755 /usr/bin/cosmic-nightly /usr/bin/cosmic-nightly-notify /usr/bin/cosmic-session-wait /usr/bin/win11-cac /usr/bin/cac-status /usr/bin/cosmic-report"
-      - "chmod 0644 /usr/lib/systemd/system/cosmic-nightly.service /usr/lib/systemd/system/cosmic-nightly.timer /usr/lib/systemd/system/cosmic-nightly-catchup.service /usr/lib/systemd/system/cosmic-nightly-catchup.timer /etc/xdg/autostart/cosmic-nightly-notify.desktop /usr/share/fedora-cosmic-atomic/flatpaks.list /usr/share/fedora-cosmic-atomic/drift-ignore.regex /usr/share/fedora-cosmic-atomic/nightly.example.env /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf /usr/lib/modules-load.d/i2c-dev.conf /usr/lib/udev/rules.d/60-i2c-uaccess.rules"
+      - "chmod 0755 /usr/libexec/libvirt-user-groups /usr/bin/cosmic-nightly /usr/bin/cosmic-nightly-notify /usr/bin/cosmic-session-wait /usr/bin/win11-cac /usr/bin/cac-status /usr/bin/cosmic-report"
+      - "chmod 0644 /usr/lib/systemd/system/cosmic-nightly.service /usr/lib/systemd/system/cosmic-nightly.timer /usr/lib/systemd/system/cosmic-nightly-catchup.service /usr/lib/systemd/system/cosmic-nightly-catchup.timer /etc/xdg/autostart/cosmic-nightly-notify.desktop /usr/share/fedora-cosmic-atomic/flatpaks.list /usr/share/fedora-cosmic-atomic/drift-ignore.regex /usr/share/fedora-cosmic-atomic/nightly.example.env /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf /usr/lib/modules-load.d/i2c-dev.conf /usr/lib/udev/rules.d/60-i2c-uaccess.rules /usr/lib/systemd/system/libvirt-relabel.service /usr/lib/systemd/system/libvirt-user-groups.service"
+
+  # ─────────────────────────────────────────────
+  # SERVICES
+  # ─────────────────────────────────────────────
+  # After the files above, so every unit enabled here exists.
+  # libvirt runs as modular daemons on Fedora. Do NOT enable libvirtd.service.
+  - type: systemd@v1
+    system:
+      enabled:
+        - tailscaled.service
+        - pcscd.socket
+        - virtqemud.socket
+        - virtnetworkd.socket
+        - virtstoraged.socket
+        - virtnodedevd.socket
+        - virtsecretd.socket
+        - virtinterfaced.socket
+        - libvirt-relabel.service       # V1/R1: SELinux labels on restored VM files
+        - libvirt-user-groups.service   # V1: wheel members join libvirt (no polkit prompt)
+        - cosmic-nightly.timer          # J1: backup, drift, staged upgrades; never reboots
+        - cosmic-nightly-catchup.timer  # R1: repeats a missed backup within the day
 
   # ─────────────────────────────────────────────
   # D1 LOGIN: wait for the greeter to release the GPU

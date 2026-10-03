@@ -10,8 +10,8 @@
 #               + restic to the off-site repository (S2b, only when online);
 #               scope: $HOME, all of /etc, /var state, VM disks (S2d)
 #   2. drift    what is on the machine that the image and the dotfiles do not declare (O1)
-#   3. upgrade  bootc upgrade (STAGED: never --apply), flatpaks, distroboxes,
-#               firmware metadata (never firmware itself)
+#   3. upgrade  bootc upgrade (STAGED: never --apply), flatpaks, Homebrew (as the
+#               user), distroboxes, firmware metadata (never firmware itself)
 #   4. report   /var/lib/cosmic-nightly/report.txt + a desktop notification
 #
 # NEVER reboots, never applies an update, never inhibits sleep (the laptop must still
@@ -92,8 +92,14 @@ step() {
 as_user() {
     runuser -u "$U" -- env HOME="$UHOME" USER="$U" XDG_RUNTIME_DIR="/run/user/$UID_U" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$UID_U/bus" \
-        PATH="$UHOME/.local/bin:/usr/local/bin:/usr/bin:/bin" "$@"
+        HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1 \
+        PATH="$UHOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$BREW_PREFIX/bin:$BREW_PREFIX/sbin" "$@"
 }
+# C1: Homebrew is the user's CLI lane. Root never runs it (Homebrew refuses root, and a
+# root job must not execute user-writable files); every brew call goes through as_user.
+BREW_PREFIX=/home/linuxbrew/.linuxbrew
+BREW="$BREW_PREFIX/bin/brew"
+brew_ok() { [[ -x "$BREW" && "$(stat -c %u "$BREW_PREFIX")" == "$UID_U" ]]; }
 
 # ── 1. backup ────────────────────────────────────────────────────────
 # Not backed up: caches, Trash, container image layers (rebuilt from their
@@ -166,6 +172,10 @@ manifest() {
     flatpak list --system --app --columns=application,origin,branch,active > "$m/flatpaks-system.txt" 2>&1
     as_user flatpak list --user --app --columns=application,origin,branch,active > "$m/flatpaks-user.txt" 2>&1
     lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS > "$m/disks.txt" 2>&1
+    if brew_ok; then
+        as_user "$BREW" list --versions > "$m/brew-versions.txt" 2>&1
+        as_user "$BREW" tap > "$m/brew-taps.txt" 2>&1
+    fi
     # The packages in every box (rootless, then rootful), so a box rebuilt from its
     # definition can be brought back to yesterday's set.
     rm -f "$m"/boxes/*.pkgs
@@ -298,6 +308,12 @@ drift() {
         comm -13 <(flatpak list --system --app --columns=application 2>/dev/null | sort -u) <(grep -v '^#' "$SHARE/flatpaks.list" | sed '/^$/d' | sort -u)
         echo "-- user flatpaks"
         as_user flatpak list --user --app --columns=application 2>/dev/null || true
+        if brew_ok && [[ -r "$UHOME/.Brewfile" ]]; then
+            echo "-- Homebrew: in ~/.Brewfile but not installed"
+            as_user "$BREW" bundle check --file="$UHOME/.Brewfile" --verbose --no-upgrade 2>&1 | grep -v "dependencies are satisfied" || true
+            echo "-- Homebrew: installed but not in ~/.Brewfile"
+            as_user "$BREW" bundle cleanup --file="$UHOME/.Brewfile" 2>&1 | grep -vE "^(Would|Run \`brew bundle cleanup)" || true
+        fi
         echo "-- dotfiles not in their declared state (chezmoi status)"
         as_user sh -c 'command -v chezmoi >/dev/null && chezmoi status || echo "(chezmoi not installed)"' 2>&1
     } > "$out"
@@ -310,6 +326,10 @@ drift() {
 # ── 3. upgrades (staged; nothing is applied, nothing reboots) ────────
 upgrade_image()    { run bootc upgrade --quiet; }
 upgrade_flatpaks() { run flatpak update --system -y --noninteractive && run as_user flatpak update --user -y --noninteractive; }
+upgrade_brew() {
+    brew_ok || { echo "Homebrew not set up for $U"; return 99; }
+    run as_user "$BREW" update --quiet && run as_user "$BREW" upgrade
+}
 upgrade_boxes() {
     local rc=0
     run as_user distrobox upgrade --all || rc=1          # rootless boxes: dev, claude, rocm
@@ -336,6 +356,7 @@ fi
 step "drift report"                 drift
 step "upgrade: image (staged)"      upgrade_image
 step "upgrade: flatpaks"            upgrade_flatpaks
+step "upgrade: Homebrew (as $U)"    upgrade_brew
 step "upgrade: distroboxes"         upgrade_boxes
 step "firmware: metadata"           firmware_metadata
 
