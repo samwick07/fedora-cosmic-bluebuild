@@ -5,7 +5,7 @@ where things stand and the exact next step. No personal values here (write `$SIT
 Private facts: `dotfiles/.migration-prep/HANDOFF.md`; the story so far:
 `dotfiles/.migration-prep/JOURNAL.md`.
 
-Last updated: 2026-10-04 (image build of main started by hand; user layer reviewed)
+Last updated: 2026-10-04 (image of main published; user layer reviewed)
 
 ## Where things stand
 - **Built, not yet run on hardware.** The laptop runs the 4TB Workstation; the 2TB waits in
@@ -13,8 +13,8 @@ Last updated: 2026-10-04 (image build of main started by hand; user layer review
   linted, unit-tested with stubs, and the image builds green in CI.
 - **Open PRs:** this one and dotfiles #5 (user-layer review: retired what the spec does not
   ask for, retries after a failed first apply, export stops containers while archiving).
-- **Image:** a build of `main` (`0e85dd1`) was started by hand on 2026-10-04 02:33 UTC; the
-  previous pushed build was 2026-10-02 (pre-F9). The nightly cron has never fired yet.
+- **Image published:** `main` (`0e85dd1`) built by hand 2026-10-04 02:33 UTC: build, smoke
+  test, push, sign and signature check all green. The nightly cron has never fired yet.
 - **Cisco:** work IT cannot provide the Secure Client `.deb`, so N4 method (b) cannot be
   installed under F10; method (a), NetworkManager-openconnect, is the work VPN. Open
   question: retire Cisco from box:net (and its `cosmic-acceptance` WAIT, which otherwise
@@ -39,9 +39,9 @@ Last updated: 2026-10-04 (image build of main started by hand; user layer review
   restic to B2 (`--tag nightly`), restore probe, hourly catch-up; set up by M11.
 
 ## Next (in order)
-1. Merge dotfiles #5 and this PR. Check the build: green, "signature OK", and `skopeo
-   inspect docker://ghcr.io/samwick07/fedora-cosmic-frmwrk:latest` lists `0e85dd1-44`
-   (or newer). Then check that the 06:17 UTC cron fires; if not, open an issue.
+1. Merge dotfiles #5 and this PR. Optional: `skopeo inspect
+   docker://ghcr.io/samwick07/fedora-cosmic-frmwrk:latest | grep 0e85dd1` from any machine.
+   Check that the 06:17 UTC cron fires; if not, open an issue (J1 and L2 assume it).
 2. Decide the Cisco question above (spec N4); retire the code after the spec says so.
 3. Workstation, DAS unlocked: `migrate.sh export` from a fresh clone of the dotfiles in
    `/tmp` (W1 Docker volumes, W2 Cisco facts, W4 Notepad++, W5 last backup — the last
