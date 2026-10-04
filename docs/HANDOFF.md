@@ -41,9 +41,10 @@ Last updated: 2026-10-04 (Workstation export complete; next is the 2TB install)
 
 ## Next (in order)
 1. Merge this PR and dotfiles #9. Check that the 06:17 UTC cron fires; if not, open an issue.
-   **Before the reinstall wipes the 2TB:** capture the COSMIC settings tuned by hand on the
-   first attempt (spec D9) into the private dotfiles, branch `capture-cosmic-2tb`; they
-   become dotfiles entries after the image test.
+   COSMIC settings from the first attempt (spec D9) are captured: private dotfiles branch
+   `capture-cosmic-2tb` (theme, panel and dock, compositor, idle, clock, display layout).
+   After the image test they become dotfiles entries, only the values that differ from
+   COSMIC's defaults.
 2. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
    (boot line `inst.ks=… cosmic.disk=<by-id name> cosmic.hostname=frmwrk-test`) → reboot
    once → `sudo cosmic-acceptance`, then `--exercise`. Done when the image row of spec
