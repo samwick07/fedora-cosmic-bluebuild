@@ -26,10 +26,9 @@ Last updated: 2026-10-03 (late night)
   into the rootful `net` box (it needs a writable `/usr` and systemd; proprietary, so never
   in the public image). `migrate.sh export` picks it up with the profiles and the facts;
   Windscribe's `.deb` is fetched by the image. Risk: distrobox#1536 (`known-issues.md`).
-- **Merged:** #8, #9. **Open, a chain** (each includes the ones before; merge in order, or
-  only the last): #10 virtualization + Homebrew → #11 snapshots, box drift → #12 docs,
-  acceptance without manual checks, automation, corrections. Dotfiles **#3** (Brewfile, box
-  baselines, `migrate.sh`, MIGRATION) goes with them.
+- **Merged:** #8–#12, dotfiles #3. **Open:** #13 (F7 one dotfiles repo; acceptance without
+  manual checks; Cisco's `.sh` in the net box) with dotfiles **#4** (machines.yaml, W2 and
+  M10 automatic).
 - **First seen on the 2TB:** the kickstart (`ostreecontainer` from the stock Atomic ISO,
   the passphrase prompt), the first-boot services, brew inside the boxes, btrfs snapshots
   and the bind-mounted restic run, the `net` box with Cisco's `.sh`, the evidence recorders,
@@ -39,7 +38,7 @@ Last updated: 2026-10-03 (late night)
 - Private facts and rules: `dotfiles/.migration-prep/HANDOFF.md`.
 
 ## Next (in order)
-1. Merge #10 → #11 → #12 and dotfiles #3; confirm the nightly CI publishes and signs.
+1. Merge #13 and dotfiles #4; confirm the nightly CI publishes and signs.
 2. Workstation: `.migration-prep/frmwrk/migrate.sh export` (W1, W2, W4, W5; nothing typed
    but the sudo password).
 3. 2TB: `docs/install.md` (kickstart) → `sudo cosmic-acceptance` → user layer →
