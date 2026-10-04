@@ -4,87 +4,67 @@
 # nightly job after it upgrades the box; idempotent, so a run with nothing to do changes nothing.
 #
 #   1. create the box from /usr/share/fedora-cosmic-atomic/net-box.ini if it is missing
-#   2. Windscribe (N5): fetch the vendor's current .deb into the installers folder
-#   3. install what is in /var/lib/net-box/installers/ and not yet in the box:
-#        *.deb                          apt installs it (or upgrades to a newer version)
-#        cisco-secure-client-*.sh       Cisco's web-deploy installer (5.1 up to 5.1.14), run
-#                                       inside the box: it writes /usr/share and its own
-#                                       systemd unit, which the read-only host does not allow;
-#                                       from 5.1.15 Cisco ships a .deb, which the line above takes
-#   4. Cisco profiles: /var/lib/net-box/cisco-profile/ (backed up) <-> the box
-#   5. menu launchers for the vendor apps found in the box (/usr/local/share/applications)
-#   6. root-owned wrappers in /usr/local/bin for the network tools (nmap, mtr, tcpdump)
+#   2. fetch each vendor .deb from its publisher (spec F10) into /var/lib/net-box/packages/,
+#      only when the publisher's file changed:
+#        Windscribe (N5)  its stable download URL (redirects to the current release)
+#        Cisco (N4b)      CISCO_DEB_URL in /etc/fedora-cosmic-atomic/net-box.env (private: Cisco
+#                         publishes the .deb only behind a login, so the work IT's link goes there)
+#   3. install each .deb the standard way (apt-get install, dependencies from apt) when the
+#      package is missing or at another version
+#   4. menu launchers for the vendor apps found in the box (/usr/local/share/applications)
+#   5. root-owned wrappers in /usr/local/bin for the network tools (nmap, mtr, tcpdump)
 set -uo pipefail
 INI=/usr/share/fedora-cosmic-atomic/net-box.ini
+CONF=/etc/fedora-cosmic-atomic/net-box.env
 BOX=net
-STATE=/var/lib/net-box
+PKGS=/var/lib/net-box/packages
 APPS=/usr/local/share/applications
 BIN=/usr/local/bin
-WINDSCRIBE_URL="${WINDSCRIBE_URL:-https://windscribe.com/install/desktop/linux_deb_x64}"
-PROFILES=/opt/cisco/secureclient/vpn/profile
+WINDSCRIBE_URL="https://windscribe.com/install/desktop/linux_deb_x64"
+CISCO_DEB_URL=""
+# shellcheck disable=SC1090
+[[ -r "$CONF" ]] && . "$CONF"
 RC=0
 
-install -d -m 0755 "$STATE/installers" "$STATE/cisco-profile" "$APPS" "$BIN"
+install -d -m 0755 "$PKGS" "$APPS" "$BIN"
 
 if ! podman container exists "$BOX"; then
     echo "creating the $BOX box from $INI"
     distrobox assemble create --file "$INI" || exit 1
 fi
 podman start "$BOX" >/dev/null || exit 1
-# Vendor installers enable and start systemd units: wait for the box's systemd.
+# Vendor packages enable and start systemd units: wait for the box's systemd.
 timeout 120 podman exec "$BOX" systemctl is-system-running --wait >/dev/null 2>&1 || true
 
-# N5: Windscribe has no apt repository; its stable download URL redirects to the current .deb.
-latest=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$WINDSCRIBE_URL" 2>/dev/null)
-latest=${latest##*/}; latest=${latest%%\?*}
-if [[ "$latest" == windscribe*.deb && ! -e "$STATE/installers/$latest" ]]; then
-    echo "fetching $latest"
-    if curl -fsSL -o "$STATE/installers/.$latest.part" "$WINDSCRIBE_URL"; then
-        find "$STATE/installers" -maxdepth 1 -name 'windscribe*.deb' -delete
-        mv "$STATE/installers/.$latest.part" "$STATE/installers/$latest"
-    else
-        rm -f "$STATE/installers/.$latest.part"; echo "!! Windscribe download failed"; RC=1
+# fetch NAME URL: $PKGS/NAME.deb, downloaded again only when the publisher's copy is newer.
+fetch() {
+    local name="$1" url="$2" dst="$PKGS/$1.deb"
+    [[ -n "$url" ]] || { rm -f "$dst"; return 0; }      # no source (any more): nothing to install
+    local since=(); [[ -e "$dst" ]] && since=(-z "$dst")
+    rm -f "$dst.part"
+    if ! curl -fsSL -R "${since[@]}" -o "$dst.part" "$url"; then
+        rm -f "$dst.part"; echo "!! $name: download from its publisher failed"; RC=1; return
     fi
-fi
+    if [[ -s "$dst.part" ]]; then
+        if [[ "$(head -c 7 "$dst.part")" == '!<arch>' ]]; then mv "$dst.part" "$dst"; echo "$name: fetched the current .deb"
+        else rm -f "$dst.part"; echo "!! $name: $url did not return a .deb (a login page?)"; RC=1; fi
+    fi
+    rm -f "$dst.part"
+}
+fetch windscribe "$WINDSCRIBE_URL"
+fetch cisco-secure-client "$CISCO_DEB_URL"
+[[ -n "$CISCO_DEB_URL" ]] || echo "Cisco: no CISCO_DEB_URL in $CONF — method (b) not installed; (a) NetworkManager-openconnect needs no package"
 
 shopt -s nullglob
-# .deb: install when the package is missing or at another version.
-for deb in "$STATE"/installers/*.deb; do
-    f="/installers/$(basename "$deb")"
+for deb in "$PKGS"/*.deb; do
+    f="/packages/$(basename "$deb")"
     pkg=$(podman exec "$BOX" dpkg-deb -f "$f" Package) || { echo "!! $f is not a .deb"; RC=1; continue; }
     want=$(podman exec "$BOX" dpkg-deb -f "$f" Version)
     have=$(podman exec "$BOX" dpkg-query -W -f '${Status} ${Version}' "$pkg" 2>/dev/null)
     [[ "$have" == "install ok installed $want" ]] && continue
-    echo "installing $pkg $want from $(basename "$deb")"
-    podman exec -e DEBIAN_FRONTEND=noninteractive "$BOX" apt-get install -y -q "$f" || RC=1
+    echo "installing $pkg $want"
+    podman exec -e DEBIAN_FRONTEND=noninteractive "$BOX" sh -c 'apt-get update -qq && apt-get install -y -q "$1"' _ "$f" || RC=1
 done
-# Cisco's .sh: run once per installer file, in an empty folder (the web-deploy script asks
-# for the license only when a license.txt sits beside it; it never does in this form).
-for sh in "$STATE"/installers/cisco-secure-client-*.sh; do
-    name=$(basename "$sh"); stamp="/var/lib/cosmic-net-box/$name.done"
-    podman exec "$BOX" test -e "$stamp" && continue
-    # A failed installer is not retried every 5 minutes; it is reported (cosmic-acceptance N4,
-    # this unit's log) until a new installer file arrives or the marker is removed.
-    [[ -e "$STATE/failed-$name" ]] && { echo "!! $name failed before ($STATE/failed-$name); not retried"; RC=1; continue; }
-    echo "installing $name"
-    out=$(podman exec "$BOX" sh -c 'd=$(mktemp -d) && cd "$d" && sh "/installers/$1"' _ "$name" </dev/null 2>&1); rc=$?
-    tail -5 <<< "$out"
-    # A newer client, upgraded by the headend on connect, makes the script refuse: fine.
-    if [[ $rc == 0 ]] || grep -q "already installed" <<< "$out"; then
-        podman exec "$BOX" sh -c 'mkdir -p /var/lib/cosmic-net-box && touch "$1"' _ "$stamp"
-    else
-        echo "!! $name failed (exit $rc)"; printf '%s\n' "$out" > "$STATE/failed-$name"; RC=1
-    fi
-done
-
-# Cisco profiles: the kept folder fills a box that has none of them; then whatever the box
-# has (a headend pushes updates on connect) goes back to the kept folder.
-if podman exec "$BOX" test -d "$PROFILES"; then
-    for f in "$STATE"/cisco-profile/*.xml; do
-        podman exec "$BOX" test -e "$PROFILES/${f##*/}" || podman cp "$f" "$BOX:$PROFILES/" || RC=1
-    done
-    podman cp "$BOX:$PROFILES/." "$STATE/cisco-profile/" 2>/dev/null || true
-fi
 
 # Launchers for the vendor GUIs that are present. A rootful box needs sudo, so they open
 # in a terminal that asks once (the fingerprint works there too).

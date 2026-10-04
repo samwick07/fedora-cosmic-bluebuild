@@ -142,6 +142,7 @@ var_excludes() {
 /lib/containers/storage/overlay-images/
 /lib/containers/storage/overlay-layers/
 /lib/systemd/coredump/
+/lib/net-box/packages/
 /roothome/.cache/
 EOF
     local d; for d in $VM_DIRS; do echo "/${d#/var/}/"; done
@@ -429,7 +430,7 @@ upgrade_boxes() {
     run as_user distrobox upgrade --all || rc=1          # rootless boxes: dev, claude, rocm
     if podman container exists net 2>/dev/null; then       # rootful box (VPN clients, network tools)
         run distrobox upgrade --root net || rc=1
-        run /usr/libexec/cosmic-net-box || rc=1           # new vendor installers, newer Windscribe
+        run /usr/libexec/cosmic-net-box || rc=1           # newer vendor .debs from their publishers (F10)
     fi
     return $rc
 }
