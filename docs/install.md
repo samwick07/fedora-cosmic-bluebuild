@@ -56,13 +56,19 @@ turn into PASS with normal use; YOU lines are the secrets only you can type.
 
 ## 4. User layer
 
+Only after section 3 shows no FAIL (each layer is tested alone, spec section 5).
+
 ```bash
-ssh-keygen -t ed25519 -C "$(hostname)"   # one key per machine (I1); add it on GitHub
-brew install chezmoi                     # Homebrew came with the image
+ssh-keygen -t ed25519 -C "$(hostname)" -N "" -f ~/.ssh/id_ed25519   # one key per machine (I1)
+brew install chezmoi gh                                              # Homebrew came with the image
+gh auth login --git-protocol ssh --web --hostname github.com         # uploads the key; title = the hostname
 chezmoi init --apply git@github.com:samwick07/dotfiles.git
-sudo cosmic-enroll                       # fingerprint, then TPM2 + PIN (finger, passphrase, PIN)
-sudo cosmic-acceptance                   # the user layer is checked from now on too
+sudo cosmic-acceptance --user                                        # gate: no FAIL in "user layer"
+sudo cosmic-enroll                                                   # fingerprint, then TPM2 + PIN
 ```
+
+If the first apply stops with `!!` (usually no network while the boxes or `brew bundle`
+download), fix the cause and run `chezmoi apply` again; the dotfiles README lists each step.
 
 ## 5. Migration, then acceptance
 
