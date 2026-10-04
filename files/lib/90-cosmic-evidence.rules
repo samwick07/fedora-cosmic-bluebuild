@@ -1,0 +1,4 @@
+# Spec L5/N4/N5: when a VPN tunnel appears (tun or WireGuard: link type 65534, ARPHRD_NONE),
+# start cosmic-evidence-tunnel@<iface>, which records routes and DNS once it has settled.
+# Tailscale is its own row (N3) and is left out.
+ACTION=="add", SUBSYSTEM=="net", ATTR{type}=="65534", KERNEL!="tailscale*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="cosmic-evidence-tunnel@%k.service"

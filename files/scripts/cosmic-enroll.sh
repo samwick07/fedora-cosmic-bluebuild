@@ -22,6 +22,14 @@ else
     echo "fingerprint: place your finger on the reader when asked"
     fprintd-enroll "$U"
 fi
+# ...and PAM must ask for it (sudo, the greeter, the lock screen): authselect's feature.
+if authselect current 2>/dev/null | grep -q with-fingerprint; then
+    echo "fingerprint: PAM uses it (authselect with-fingerprint)"
+elif [[ $CHECK == 1 ]]; then
+    echo "fingerprint: PAM does NOT use it (authselect with-fingerprint missing)"
+else
+    authselect enable-feature with-fingerprint && authselect apply-changes && echo "fingerprint: PAM enabled (authselect with-fingerprint)"
+fi
 
 # P9: TPM2 + PIN on each LUKS device of /etc/crypttab
 mapfile -t devs < <(awk '!/^#/ && NF>=2 {print $2}' /etc/crypttab)

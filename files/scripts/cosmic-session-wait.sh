@@ -37,10 +37,11 @@ while greeter_busy && [ "$waited" -lt "$timeout_ms" ]; do
     waited=$((waited + step_ms))
 done
 
+# One line per login, so cosmic-acceptance can count logins (spec D1, L5).
 if greeter_busy; then
-    logger -t cosmic-session-wait "greeter still active after ${waited} ms; starting the session anyway"
-elif [ "$waited" -gt 0 ]; then
-    logger -t cosmic-session-wait "waited ${waited} ms for the greeter to release the GPU"
+    logger -t cosmic-session-wait "login: greeter still active after ${waited} ms; starting the session anyway"
+else
+    logger -t cosmic-session-wait "login: session starts after waiting ${waited} ms for the greeter"
 fi
 
 exec /usr/bin/start-cosmic "$@"

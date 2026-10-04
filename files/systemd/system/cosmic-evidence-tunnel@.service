@@ -1,0 +1,10 @@
+# Spec L5/N4/N5: a tunnel interface came up (udev rule 90-cosmic-evidence.rules); after
+# 20 s record its routes and DNS, and whether names resolve on the host, in the dev box
+# and in a podman container. Read-only; the record goes to the journal.
+[Unit]
+Description=Record routes and DNS for tunnel %i (cosmic-evidence)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/cosmic-evidence tunnel %i
+TimeoutStartSec=4min
