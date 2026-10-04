@@ -11,7 +11,7 @@ Last updated: 2026-10-04 (Workstation export complete; next is the 2TB install)
 - **Built, not yet run on hardware.** The laptop runs the 4TB Workstation; the 2TB waits in
   the DAS enclosure for a fresh install. Image, user layer and migration are written,
   linted, unit-tested with stubs, and the image builds green in CI.
-- **Open PRs:** this one and dotfiles #9 (gateway for M10, private).
+- **Open PRs:** this one, dotfiles #9 (gateway for M10) and dotfiles #10 (COSMIC settings, D9).
 - **Workstation export complete (W1, W2, W4, W5):** volume archives, the compose project,
   Cisco facts and the kept installer, Notepad++ settings in `DAS/migration/`; the last
   Workstation backup is in the old repo (`restic check` clean). Nothing else is needed
@@ -41,10 +41,9 @@ Last updated: 2026-10-04 (Workstation export complete; next is the 2TB install)
 
 ## Next (in order)
 1. Merge this PR and dotfiles #9. Check that the 06:17 UTC cron fires; if not, open an issue.
-   COSMIC settings from the first attempt (spec D9) are captured: private dotfiles branch
-   `capture-cosmic-2tb` (theme, panel and dock, compositor, idle, clock, display layout).
-   After the image test they become dotfiles entries, only the values that differ from
-   COSMIC's defaults.
+   COSMIC settings (spec D9) are in dotfiles #10: only what differs from COSMIC's defaults,
+   plus Ctrl+C/Ctrl+V in COSMIC Terminal; the raw capture branch `capture-cosmic-2tb` is
+   not for merge and can be deleted after #10.
 2. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
    (boot line `inst.ks=… cosmic.disk=<by-id name> cosmic.hostname=frmwrk-test`) → reboot
    once → `sudo cosmic-acceptance`, then `--exercise`. Done when the image row of spec
