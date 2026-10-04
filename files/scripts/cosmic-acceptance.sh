@@ -437,11 +437,11 @@ check V3 "Firefox's PKCS#11 path: p11-kit proxy in the system NSS db, OpenSC reg
     'grep -qs p11-kit-proxy /etc/pki/nssdb/pkcs11.txt && test -e /usr/share/p11-kit/modules/opensc.module'
 check N4 "net box created by cosmic-net-box" sh -c 'podman container exists net || { systemctl status cosmic-net-box --no-pager -n 5; exit 1; }'
 check C1c "nmap, mtr, tcpdump wrappers (run in the net box)" sh -c 'for t in nmap mtr tcpdump; do [ -x /usr/local/bin/$t ] || { echo "missing /usr/local/bin/$t"; exit 1; }; done'
-if grep -qs '^CISCO_DEB_URL="..*"' /etc/fedora-cosmic-atomic/net-box.env; then
+if compgen -G '/var/lib/net-box/installers/cisco-secure-client-*.sh' >/dev/null; then
     check N4 "Cisco agent runs in the net box and answers" sh -c \
         'podman exec net systemctl is-active --quiet vpnagentd && podman exec net /opt/cisco/secureclient/bin/vpn state 2>&1 | grep -qi "state:" || { podman exec net /opt/cisco/secureclient/bin/vpn state 2>&1 | tail -3; exit 1; }'
 else
-    wait_ N4 "Cisco Secure Client in the net box" "CISCO_DEB_URL in /etc/fedora-cosmic-atomic/net-box.env (work IT's link; M10 writes it)"
+    wait_ N4 "Cisco Secure Client in the net box" "the kept installer in /var/lib/net-box/installers/ (migration M10 puts it there)"
 fi
 check N5 "Windscribe app in the net box" sh -c 'podman exec net test -x /opt/windscribe/Windscribe || { journalctl -u cosmic-net-box -n 5 --no-pager -o cat; exit 1; }'
 check C1 "Homebrew unpacked and owned by $U" sh -c "[ -x $BREW_PREFIX/bin/brew ] && [ \"\$(stat -c %U $BREW_PREFIX)\" = '$U' ]"

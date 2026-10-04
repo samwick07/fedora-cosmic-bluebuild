@@ -33,9 +33,11 @@ moves here when it is a lasting limitation rather than something to fix.
   the VPN's DNS servers to the host's resolver (the box has its own `/etc/resolv.conf`).
   `cosmic-acceptance` checks that the agent answers (`vpn state`), and every tunnel's record
   shows the DNS servers in use; if either fails, method (a), NetworkManager-openconnect, is
-  the fallback the trial already carries. Cisco publishes the `.deb` (5.1.15 and later) only
-  behind a login, so `cosmic-net-box` fetches it from the link in `CISCO_DEB_URL` (private
-  `net-box.env`); a link that answers with a login page is reported, not installed.
+  the fallback the trial already carries. Cisco publishes the client only behind a login and
+  work IT cannot provide a download, so it is installed from the web-deploy `.sh` kept from the
+  Workstation (the noted F10 exception; `/var/lib/net-box/installers/`, private); the headend
+  upgrades it on connect. A failed install is reported once and not retried until a new
+  installer file arrives.
 - **CAC in Chrome (dev distrobox).** Chrome is the RPM in the `dev` box. Tested on the
   Workstation (2026-10-02, throwaway box, no reader attached): the box reaches the host's
   pcscd through the /run/pcscd symlink (SCardEstablishContext ok; without the symlink
