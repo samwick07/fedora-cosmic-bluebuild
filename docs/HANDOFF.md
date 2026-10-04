@@ -5,16 +5,17 @@ where things stand and the exact next step. No personal values here (write `$SIT
 Private facts: `dotfiles/.migration-prep/HANDOFF.md`; the story so far:
 `dotfiles/.migration-prep/JOURNAL.md`.
 
-Last updated: 2026-10-04 (Cisco from the kept installer; export W1, W4, W5 done)
+Last updated: 2026-10-04 (Workstation export complete; next is the 2TB install)
 
 ## Where things stand
 - **Built, not yet run on hardware.** The laptop runs the 4TB Workstation; the 2TB waits in
   the DAS enclosure for a fresh install. Image, user layer and migration are written,
   linted, unit-tested with stubs, and the image builds green in CI.
-- **Open PRs:** this one (Cisco from the kept installer; supersedes #16) and dotfiles #7.
-- **Workstation export:** W5 (last backup) done, `restic check` clean; W1 volume archives
-  on the DAS; W4 done. Open: W1 did not find the compose project, W2 found no Cisco profile
-  or gateway (diagnostics asked for).
+- **Open PRs:** this one and dotfiles #9 (gateway for M10, private).
+- **Workstation export complete (W1, W2, W4, W5):** volume archives, the compose project,
+  Cisco facts and the kept installer, Notepad++ settings in `DAS/migration/`; the last
+  Workstation backup is in the old repo (`restic check` clean). Nothing else is needed
+  from the Workstation until the real 4TB install (then `export w5` again).
 - **Image published:** `main` (`0e85dd1`) built by hand 2026-10-04 02:33 UTC: build, smoke
   test, push, sign and signature check all green. The nightly cron has never fired yet.
 - **Cisco (decided 2026-10-03):** no `.deb` from work IT; the web-deploy `.sh` kept from the
@@ -39,20 +40,16 @@ Last updated: 2026-10-04 (Cisco from the kept installer; export W1, W4, W5 done)
   restic to B2 (`--tag nightly`), restore probe, hourly catch-up; set up by M11.
 
 ## Next (in order)
-1. Merge this PR and dotfiles #7; on the Workstation finish W1 (compose project) and W2
-   (installer to the DAS, Cisco facts): `migrate.sh export w1 w2`. Check that the 06:17
-   UTC cron fires; if not, open an issue.
-2. Nothing else blocks the 2TB install.
-3. Before the real 4TB install (not before the 2TB test): `export w5` again, so the
-   archive holds the latest data.
-4. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
+1. Merge this PR and dotfiles #9. Check that the 06:17 UTC cron fires; if not, open an issue.
+2. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
    (boot line `inst.ks=… cosmic.disk=<by-id name> cosmic.hostname=frmwrk-test`) → reboot
    once → `sudo cosmic-acceptance`, then `--exercise`. Done when the image row of spec
    section 6 has no FAIL. Remove the old `frmwrk-test` SSH key from GitHub.
-5. 2TB, user layer alone: `docs/install.md` section 4 → `sudo cosmic-acceptance --user`.
+3. 2TB, user layer alone: `docs/install.md` section 4 → `sudo cosmic-acceptance --user`.
    Done when the user-layer row passes.
-6. 2TB, migration: `migrate.sh all`; use it daily; WAIT lines clear with use.
-7. Then the 4TB with no changes; then the warm spare (L4); rechunk only if L6 says so.
+4. 2TB, migration: `migrate.sh all`; use it daily; WAIT lines clear with use.
+5. Before the real 4TB install: `migrate.sh export w5` on the Workstation. Then the 4TB
+   with no changes; then the warm spare (L4); rechunk only if L6 says so.
 
 ## Watch on the 2TB (unproven until hardware)
 - Cisco in a rootful distrobox (distrobox#1536) and whether the VPN's DNS reaches the
