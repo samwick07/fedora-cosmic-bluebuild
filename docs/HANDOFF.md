@@ -5,14 +5,16 @@ where things stand and the exact next step. No personal values here (write `$SIT
 Private facts: `dotfiles/.migration-prep/HANDOFF.md`; the story so far:
 `dotfiles/.migration-prep/JOURNAL.md`.
 
-Last updated: 2026-10-04 (image of main published; user layer reviewed)
+Last updated: 2026-10-04 (first export run on the Workstation; W1 fix in dotfiles #6)
 
 ## Where things stand
 - **Built, not yet run on hardware.** The laptop runs the 4TB Workstation; the 2TB waits in
   the DAS enclosure for a fresh install. Image, user layer and migration are written,
   linted, unit-tested with stubs, and the image builds green in CI.
-- **Open PRs:** this one and dotfiles #5 (user-layer review: retired what the spec does not
-  ask for, retries after a failed first apply, export stops containers while archiving).
+- **Open PRs:** dotfiles #6 (export fixes). #14, #15 and dotfiles #5 are merged.
+- **Workstation export, first run:** W2 and W4 done, W5 (last backup) started; W1 failed
+  (a container may not write to the DAS mount) and found no compose project. Fixed in
+  dotfiles #6; rerun only W1 and W2 (`export w1 w2`), so the old repo gets no second backup.
 - **Image published:** `main` (`0e85dd1`) built by hand 2026-10-04 02:33 UTC: build, smoke
   test, push, sign and signature check all green. The nightly cron has never fired yet.
 - **Cisco:** work IT cannot provide the Secure Client `.deb`, so N4 method (b) cannot be
@@ -39,13 +41,11 @@ Last updated: 2026-10-04 (image of main published; user layer reviewed)
   restic to B2 (`--tag nightly`), restore probe, hourly catch-up; set up by M11.
 
 ## Next (in order)
-1. Merge dotfiles #5 and this PR. Optional: `skopeo inspect
-   docker://ghcr.io/samwick07/fedora-cosmic-frmwrk:latest | grep 0e85dd1` from any machine.
-   Check that the 06:17 UTC cron fires; if not, open an issue (J1 and L2 assume it).
+1. Merge dotfiles #6; on the Workstation `migrate.sh export w1 w2` from a fresh clone in
+   `/tmp`. Check that the 06:17 UTC cron fires; if not, open an issue.
 2. Decide the Cisco question above (spec N4); retire the code after the spec says so.
-3. Workstation, DAS unlocked: `migrate.sh export` from a fresh clone of the dotfiles in
-   `/tmp` (W1 Docker volumes, W2 Cisco facts, W4 Notepad++, W5 last backup — the last
-   write to the old restic repo; only the sudo password).
+3. Before the real 4TB install (not before the 2TB test): `export w5` again, so the
+   archive holds the latest data.
 4. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
    (boot line `inst.ks=… cosmic.disk=<by-id name> cosmic.hostname=frmwrk-test`) → reboot
    once → `sudo cosmic-acceptance`, then `--exercise`. Done when the image row of spec
