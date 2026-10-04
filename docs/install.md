@@ -44,8 +44,15 @@ reason is on the screen and in `/tmp/cosmic-pre.log`; nothing has been written.
 ## 3. Check the image layer
 
 ```bash
-sudo cosmic-acceptance        # automatic checks + the list of manual ones
+sudo cosmic-acceptance        # live checks + evidence so far (WAIT lines say what produces it)
+sudo cosmic-acceptance --exercise   # once, while you watch: suspends and hibernates the
+                                    # machine (RTC alarm), switches power profiles, prints a
+                                    # test page, CAC into the VM both ways, starts every app
 ```
+
+Nothing is ticked by hand: boots, logins, lid closes, Bluetooth reconnects and VPN tunnels
+are recorded as they happen, and the nightly job reruns the checks (spec L5). WAIT lines
+turn into PASS with normal use; YOU lines are the secrets only you can type.
 
 ## 4. User layer
 
@@ -54,17 +61,15 @@ ssh-keygen -t ed25519 -C "$(hostname)"   # one key per machine (I1); add it on G
 brew install chezmoi                     # Homebrew came with the image
 chezmoi init --apply git@github.com:samwick07/dotfiles.git
 sudo cosmic-enroll                       # fingerprint, then TPM2 + PIN (finger, passphrase, PIN)
-sudo cosmic-acceptance --user
+sudo cosmic-acceptance                   # the user layer is checked from now on too
 ```
 
 ## 5. Migration, then acceptance
 
 The one-time steps are private: `dotfiles/.migration-prep/frmwrk/MIGRATION.md`, part B, run
-by `migrate.sh` beside it. When every check of spec section 6 passes:
-
-```bash
-sudo cosmic-acceptance --pin             # pins this deployment as known-good (L3)
-```
+by `migrate.sh` beside it. When acceptance has no FAIL and nothing left waiting, the next
+run (yours or the nightly one) pins the booted deployment as known-good by itself (L3); a
+newer one that stays clean for 7 days takes the pin over.
 
 ## Without the kickstart (fallback)
 
