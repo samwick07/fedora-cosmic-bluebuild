@@ -5,22 +5,22 @@ where things stand and the exact next step. No personal values here (write `$SIT
 Private facts: `dotfiles/.migration-prep/HANDOFF.md`; the story so far:
 `dotfiles/.migration-prep/JOURNAL.md`.
 
-Last updated: 2026-10-04 (first export run on the Workstation; W1 fix in dotfiles #6)
+Last updated: 2026-10-04 (Cisco from the kept installer; export W1, W4, W5 done)
 
 ## Where things stand
 - **Built, not yet run on hardware.** The laptop runs the 4TB Workstation; the 2TB waits in
   the DAS enclosure for a fresh install. Image, user layer and migration are written,
   linted, unit-tested with stubs, and the image builds green in CI.
-- **Open PRs:** dotfiles #6 (export fixes). #14, #15 and dotfiles #5 are merged.
-- **Workstation export, first run:** W2 and W4 done, W5 (last backup) started; W1 failed
-  (a container may not write to the DAS mount) and found no compose project. Fixed in
-  dotfiles #6; rerun only W1 and W2 (`export w1 w2`), so the old repo gets no second backup.
+- **Open PRs:** this one (Cisco from the kept installer; supersedes #16) and dotfiles #7.
+- **Workstation export:** W5 (last backup) done, `restic check` clean; W1 volume archives
+  on the DAS; W4 done. Open: W1 did not find the compose project, W2 found no Cisco profile
+  or gateway (diagnostics asked for).
 - **Image published:** `main` (`0e85dd1`) built by hand 2026-10-04 02:33 UTC: build, smoke
   test, push, sign and signature check all green. The nightly cron has never fired yet.
-- **Cisco:** work IT cannot provide the Secure Client `.deb`, so N4 method (b) cannot be
-  installed under F10; method (a), NetworkManager-openconnect, is the work VPN. Open
-  question: retire Cisco from box:net (and its `cosmic-acceptance` WAIT, which otherwise
-  never clears and blocks the automatic pin, L3)? Spec change first.
+- **Cisco (decided 2026-10-03):** no `.deb` from work IT; the web-deploy `.sh` kept from the
+  Workstation is the one noted F10 exception (spec F10, N4). W2 copies it to the DAS, M10
+  into `/var/lib/net-box/installers/`, `cosmic-net-box` runs it in the box once; the
+  headend upgrades the client on connect. Method (a) stays in the trial.
 - **The shape (spec section 5):** stock COSMIC Atomic ISO + `install/frmwrk.ks` → signed
   custom image (stock base + virtualization stack, Tailscale, restic, distrobox, CAC,
   Homebrew; F9) → first-boot services finish alone → user layer (`chezmoi init --apply`)
@@ -29,10 +29,8 @@ Last updated: 2026-10-04 (first export run on the Workstation; W1 fix in dotfile
   `net` (rootful, created and kept by the image). Boxes for single projects come later,
   declared with their projects.
 - **Software comes from its publisher (F10):** nothing is carried over from the
-  Workstation except data and settings. Windscribe's `.deb` is fetched by the `net` box;
-  Cisco's `.deb` needs a direct link from work IT (`CISCO_DEB_URL`, private), because Cisco
-  publishes it only behind a login. Without the link, the work VPN is method (a),
-  NetworkManager-openconnect (`work-vpn`), which needs no package.
+  Workstation except data and settings, and the one noted exception, Cisco's installer.
+  Windscribe's `.deb` is fetched by the `net` box.
 - **Acceptance without manual checks (L5):** `sudo cosmic-acceptance` (live state +
   evidence from use; PASS / FAIL / WAIT / YOU), `--exercise` once with you present; the
   nightly job reruns it and pins known-good (L3). Left to you: finger, PIN, passphrase,
@@ -41,9 +39,10 @@ Last updated: 2026-10-04 (first export run on the Workstation; W1 fix in dotfile
   restic to B2 (`--tag nightly`), restore probe, hourly catch-up; set up by M11.
 
 ## Next (in order)
-1. Merge dotfiles #6; on the Workstation `migrate.sh export w1 w2` from a fresh clone in
-   `/tmp`. Check that the 06:17 UTC cron fires; if not, open an issue.
-2. Decide the Cisco question above (spec N4); retire the code after the spec says so.
+1. Merge this PR and dotfiles #7; on the Workstation finish W1 (compose project) and W2
+   (installer to the DAS, Cisco facts): `migrate.sh export w1 w2`. Check that the 06:17
+   UTC cron fires; if not, open an issue.
+2. Nothing else blocks the 2TB install.
 3. Before the real 4TB install (not before the 2TB test): `export w5` again, so the
    archive holds the latest data.
 4. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
