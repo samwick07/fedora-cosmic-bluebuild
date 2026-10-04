@@ -112,6 +112,7 @@ modules:
   # win11-cac             V2: hand the USB CAC reader to Win11VM and back
   # cac-status            V2–V4: read-only CAC report
   # cosmic-report         machine state for the journal or a bug report (--public, --offline)
+  # cosmic-acceptance     L5: spec section 6 on the machine (+ cosmic-evidence recorders)
   - type: files@v1
     files:
       - source: scripts/cosmic-nightly.sh
@@ -142,6 +143,15 @@ modules:
         destination: /usr/lib/systemd/system/cosmic-net-box.service
       - source: share/net-box.ini
         destination: /usr/share/fedora-cosmic-atomic/net-box.ini
+      # L5: evidence for cosmic-acceptance, recorded as things happen (journal only)
+      - source: scripts/cosmic-evidence.sh
+        destination: /usr/libexec/cosmic-evidence
+      - source: systemd/system/cosmic-evidence-sleep.service
+        destination: /usr/lib/systemd/system/cosmic-evidence-sleep.service
+      - source: systemd/system/cosmic-evidence-tunnel@.service
+        destination: /usr/lib/systemd/system/cosmic-evidence-tunnel@.service
+      - source: lib/90-cosmic-evidence.rules
+        destination: /usr/lib/udev/rules.d/90-cosmic-evidence.rules
       - source: systemd/system/cosmic-nightly.service
         destination: /usr/lib/systemd/system/cosmic-nightly.service
       - source: systemd/system/cosmic-nightly.timer
@@ -180,8 +190,8 @@ modules:
   # data files would land 0600 and the user session could not read them.
   - type: script@v2
     snippets:
-      - "chmod 0755 /usr/bin/cosmic-enroll /usr/libexec/cosmic-signed-origin /usr/libexec/cosmic-net-box /usr/bin/cosmic-acceptance /usr/libexec/libvirt-user-groups /usr/bin/cosmic-nightly /usr/bin/cosmic-nightly-notify /usr/bin/cosmic-session-wait /usr/bin/win11-cac /usr/bin/cac-status /usr/bin/cosmic-report"
-      - "chmod 0644 /usr/lib/systemd/system/cosmic-nightly.service /usr/lib/systemd/system/cosmic-nightly.timer /usr/lib/systemd/system/cosmic-nightly-catchup.service /usr/lib/systemd/system/cosmic-nightly-catchup.timer /etc/xdg/autostart/cosmic-nightly-notify.desktop /usr/share/fedora-cosmic-atomic/flatpaks.list /usr/share/fedora-cosmic-atomic/drift-ignore.regex /usr/share/fedora-cosmic-atomic/nightly.example.env /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf /usr/lib/modules-load.d/i2c-dev.conf /usr/lib/udev/rules.d/60-i2c-uaccess.rules /usr/lib/systemd/system/libvirt-relabel.service /usr/lib/systemd/system/libvirt-user-groups.service /usr/lib/systemd/system/cosmic-signed-origin.service /usr/lib/systemd/system/cosmic-net-box.service /usr/share/fedora-cosmic-atomic/net-box.ini"
+      - "chmod 0755 /usr/bin/cosmic-enroll /usr/libexec/cosmic-signed-origin /usr/libexec/cosmic-net-box /usr/libexec/cosmic-evidence /usr/bin/cosmic-acceptance /usr/libexec/libvirt-user-groups /usr/bin/cosmic-nightly /usr/bin/cosmic-nightly-notify /usr/bin/cosmic-session-wait /usr/bin/win11-cac /usr/bin/cac-status /usr/bin/cosmic-report"
+      - "chmod 0644 /usr/lib/systemd/system/cosmic-nightly.service /usr/lib/systemd/system/cosmic-nightly.timer /usr/lib/systemd/system/cosmic-nightly-catchup.service /usr/lib/systemd/system/cosmic-nightly-catchup.timer /etc/xdg/autostart/cosmic-nightly-notify.desktop /usr/share/fedora-cosmic-atomic/flatpaks.list /usr/share/fedora-cosmic-atomic/drift-ignore.regex /usr/share/fedora-cosmic-atomic/nightly.example.env /usr/lib/systemd/system/system-flatpak-setup.service.d/20-retry.conf /usr/lib/systemd/user/user-flatpak-setup.service.d/20-retry.conf /usr/lib/modules-load.d/i2c-dev.conf /usr/lib/udev/rules.d/60-i2c-uaccess.rules /usr/lib/systemd/system/libvirt-relabel.service /usr/lib/systemd/system/libvirt-user-groups.service /usr/lib/systemd/system/cosmic-signed-origin.service /usr/lib/systemd/system/cosmic-net-box.service /usr/share/fedora-cosmic-atomic/net-box.ini /usr/lib/systemd/system/cosmic-evidence-sleep.service /usr/lib/systemd/system/cosmic-evidence-tunnel@.service /usr/lib/udev/rules.d/90-cosmic-evidence.rules"
 
   # ─────────────────────────────────────────────
   # SERVICES
@@ -203,6 +213,7 @@ modules:
         - libvirt-user-groups.service   # V1: wheel members join libvirt (no polkit prompt)
         - cosmic-signed-origin.service  # L1: every later update signature-verified
         - cosmic-net-box.service        # N4/C1c: the rootful net box
+        - cosmic-evidence-sleep.service # L5: battery and Bluetooth around every sleep
         - cosmic-nightly.timer          # J1: backup, drift, staged upgrades; never reboots
         - cosmic-nightly-catchup.timer  # R1: repeats a missed backup within the day
 

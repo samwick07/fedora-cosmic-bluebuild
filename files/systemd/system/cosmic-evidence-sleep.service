@@ -1,0 +1,18 @@
+# Spec L5/P2/P3: record battery energy and the connected Bluetooth devices before every
+# sleep, and again after the resume, so cosmic-acceptance can report drain and Bluetooth
+# reconnects from normal use. A unit around sleep.target (not a system-sleep hook) runs
+# unconfined, like any service, and never delays the sleep by more than a few seconds.
+[Unit]
+Description=Record battery and Bluetooth state around sleep (cosmic-evidence)
+Before=sleep.target
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/libexec/cosmic-evidence sleep-pre
+ExecStop=-/usr/libexec/cosmic-evidence sleep-post
+TimeoutSec=15
+
+[Install]
+WantedBy=sleep.target
