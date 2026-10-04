@@ -41,9 +41,9 @@ sudo -i                                                  # a root shell
 set -a; . /etc/fedora-cosmic-atomic/nightly.env; set +a  # repository, password file, keys
 restic snapshots --host frmwrk                           # pick one, or use latest
 restic find --host frmwrk 'report.odt'                   # where it is, in which snapshots
-restic restore latest --host frmwrk --target /var/tmp/r \
+restic restore latest --host frmwrk --tag nightly --target /var/tmp/r \
     --include /var/home/$SITE_USER/Documents/report.odt       # one file (or a folder)
-restic dump latest --host frmwrk /var/home/$SITE_USER/Documents/report.odt > /var/tmp/report.odt
+restic dump latest --host frmwrk --tag nightly /var/home/$SITE_USER/Documents/report.odt > /var/tmp/report.odt
 ```
 
 On a machine without `nightly.env` (a rebuild), export `RESTIC_REPOSITORY`, the key
@@ -53,7 +53,10 @@ parts of the repository that hold the requested files are downloaded and decrypt
 To browse snapshots like folders: `restic mount ~/restic-mnt`. Fedora 44 ships only
 `fusermount3`; restic looks for `fusermount`, so link it once:
 `ln -s /usr/bin/fusermount3 ~/.local/bin/fusermount`. Always pass `--host`: `latest` alone
-is the newest snapshot of *any* host (test installs are their own host).
+is the newest snapshot of *any* host (test installs are their own host), and `--tag nightly`:
+VM disks are separate snapshots (tag `vm-disk`), so the newest snapshot may hold only a disk.
+The nightly job proves this path every night: one random home file and the manifest come
+back from the DAS and from B2 and are compared (restore probe, in the report).
 
 ## A changed or deleted file in `/etc`
 

@@ -25,6 +25,17 @@ moves here when it is a lasting limitation rather than something to fix.
   the reader over; `detach` gives it back. SPICE redirection (fallback) may fail while host
   pcscd holds the reader: close the host's browsers or `sudo systemctl stop pcscd` first.
   Either way the host sees no card until it is given back.
+- **Cisco Secure Client in the rootful `net` box** (N4b). Cisco documents the client on a
+  plain host; the one public report of it in a rootful distrobox
+  ([distrobox#1536](https://github.com/89luca89/distrobox/issues/1536), 5.1.5, Ubuntu, `--init`)
+  failed with "unable to create the interprocess communication depot" and is unresolved (the
+  maintainer suggested `--unshare-ipc`). Also open: whether `vpnagentd` in the box can hand
+  the VPN's DNS servers to the host's resolver (the box has its own `/etc/resolv.conf`).
+  `cosmic-acceptance` checks that the agent answers (`vpn state`), and every tunnel's record
+  shows the DNS servers in use; if either fails, method (a), NetworkManager-openconnect, is
+  the fallback the trial already carries. The web-deploy `.sh` is non-interactive (it asks
+  for the license only when a `license.txt` sits beside it); Cisco dropped the `.sh` from
+  5.1.15, and `cosmic-net-box` takes the `.deb` that replaced it.
 - **CAC in Chrome (dev distrobox).** Chrome is the RPM in the `dev` box. Tested on the
   Workstation (2026-10-02, throwaway box, no reader attached): the box reaches the host's
   pcscd through the /run/pcscd symlink (SCardEstablishContext ok; without the symlink
@@ -32,7 +43,8 @@ moves here when it is a lasting limitation rather than something to fix.
   Chrome's renderers run in their own user/pid namespaces with seccomp. Untested: a real
   card + PIN + a CAC login site. pcsc-lite in the box (fedora:44) and on the host must speak
   the same protocol; both are Fedora 44 today.
-- **Rechunking / zstd.** Not enabled: per-update download size not measured yet (spec L6;
+- **Rechunking / zstd.** Not enabled: the nightly job records each night's download size
+  (`/var/lib/cosmic-nightly/download-size.log`, spec L6; shown by `cosmic-acceptance`;
   `--build-chunked-oci` is a CI dispatch option); zstd untested with `bootc upgrade`.
 - **Homebrew inside boxes is read-only.** `dev` and `claude` mount `/home/linuxbrew`
   read-only (distrobox mounts only `$HOME`); `brew install` works on the host only.
@@ -41,7 +53,8 @@ moves here when it is a lasting limitation rather than something to fix.
 ## Lasting caveats (worked around)
 
 - **restic `latest` means "newest of any host".** Test-drive backups (`<name>-test`) are newer than
-  the real machine's; restores and docs always use `latest --host <SITE_HOSTNAME>`.
+  the real machine's, and VM disks are snapshots of their own (tag `vm-disk`); restores and
+  docs always use `latest --host <SITE_HOSTNAME> --tag nightly`.
 
 - **BlueBuild CLI 0.9.37 local builds sign for `localhost/<image>`.** `bluebuild
   build` drops `--registry` before generating the Containerfile.
