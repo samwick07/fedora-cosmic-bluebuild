@@ -32,7 +32,7 @@ the data from two backups; a dead drive costs a drive and an afternoon.
 3. Restore per `docs/restore.md` "The whole machine as of yesterday": home, `/etc` except
    the install-specific files, `/var` state, VM disks, then the boxes and flatpaks from the
    manifest.
-4. `sudo cosmic-acceptance --user`, the drift report, one hibernate/resume.
+4. `sudo cosmic-acceptance --exercise` (checks, one suspend and one hibernate), the drift report.
 5. Re-enrol what is tied to the hardware or the install: `sudo cosmic-enroll` (fingerprint,
    TPM2 + PIN); Tailscale logs in again unless the old machine is gone for good and its
    state was restored.

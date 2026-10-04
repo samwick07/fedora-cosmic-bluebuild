@@ -1,40 +1,73 @@
 #!/usr/bin/bash
 # cosmic-net-box — create and maintain the rootful `net` distrobox (spec N4, N5, C1c).
-# Run by cosmic-net-box.service at boot (retries until the network is up) and after
-# every image update; idempotent, so a run with nothing to do changes nothing.
+# Run by cosmic-net-box.service at boot (retries until the network is up) and by the
+# nightly job after it upgrades the box; idempotent, so a run with nothing to do changes nothing.
 #
 #   1. create the box from /usr/share/fedora-cosmic-atomic/net-box.ini if it is missing
-#   2. install every vendor .deb in /var/lib/net-box/installers/ that is not installed yet
-#   3. menu launchers for the vendor apps found in the box (/usr/local/share/applications)
-#   4. root-owned wrappers in /usr/local/bin for the network tools (nmap, mtr, tcpdump)
-set -euo pipefail
+#   2. fetch each vendor .deb from its publisher (spec F10) into /var/lib/net-box/packages/,
+#      only when the publisher's file changed:
+#        Windscribe (N5)  its stable download URL (redirects to the current release)
+#        Cisco (N4b)      CISCO_DEB_URL in /etc/fedora-cosmic-atomic/net-box.env (private: Cisco
+#                         publishes the .deb only behind a login, so the work IT's link goes there)
+#   3. install each .deb the standard way (apt-get install, dependencies from apt) when the
+#      package is missing or at another version
+#   4. menu launchers for the vendor apps found in the box (/usr/local/share/applications)
+#   5. root-owned wrappers in /usr/local/bin for the network tools (nmap, mtr, tcpdump)
+set -uo pipefail
 INI=/usr/share/fedora-cosmic-atomic/net-box.ini
+CONF=/etc/fedora-cosmic-atomic/net-box.env
 BOX=net
-STATE=/var/lib/net-box
+PKGS=/var/lib/net-box/packages
 APPS=/usr/local/share/applications
 BIN=/usr/local/bin
+WINDSCRIBE_URL="https://windscribe.com/install/desktop/linux_deb_x64"
+CISCO_DEB_URL=""
+# shellcheck disable=SC1090
+[[ -r "$CONF" ]] && . "$CONF"
+RC=0
 
-install -d -m 0755 "$STATE/installers" "$STATE/cisco-profile" "$APPS" "$BIN"
+install -d -m 0755 "$PKGS" "$APPS" "$BIN"
 
 if ! podman container exists "$BOX"; then
     echo "creating the $BOX box from $INI"
-    distrobox assemble create --file "$INI"
+    distrobox assemble create --file "$INI" || exit 1
 fi
-podman start "$BOX" >/dev/null
+podman start "$BOX" >/dev/null || exit 1
+# Vendor packages enable and start systemd units: wait for the box's systemd.
+timeout 120 podman exec "$BOX" systemctl is-system-running --wait >/dev/null 2>&1 || true
 
-# Vendor packages: install what is in the folder and not yet in the box.
-shopt -s nullglob
-for deb in "$STATE"/installers/*.deb; do
-    pkg=$(podman exec "$BOX" dpkg-deb -f "/installers/$(basename "$deb")" Package)
-    if podman exec "$BOX" dpkg-query -W -f '${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
-        continue
+# fetch NAME URL: $PKGS/NAME.deb, downloaded again only when the publisher's copy is newer.
+fetch() {
+    local name="$1" url="$2" dst="$PKGS/$1.deb"
+    [[ -n "$url" ]] || { rm -f "$dst"; return 0; }      # no source (any more): nothing to install
+    local since=(); [[ -e "$dst" ]] && since=(-z "$dst")
+    rm -f "$dst.part"
+    if ! curl -fsSL -R "${since[@]}" -o "$dst.part" "$url"; then
+        rm -f "$dst.part"; echo "!! $name: download from its publisher failed"; RC=1; return
     fi
-    echo "installing $pkg from $(basename "$deb")"
-    podman exec -e DEBIAN_FRONTEND=noninteractive "$BOX" apt-get install -y -q "/installers/$(basename "$deb")"
+    if [[ -s "$dst.part" ]]; then
+        if [[ "$(head -c 7 "$dst.part")" == '!<arch>' ]]; then mv "$dst.part" "$dst"; echo "$name: fetched the current .deb"
+        else rm -f "$dst.part"; echo "!! $name: $url did not return a .deb (a login page?)"; RC=1; fi
+    fi
+    rm -f "$dst.part"
+}
+fetch windscribe "$WINDSCRIBE_URL"
+fetch cisco-secure-client "$CISCO_DEB_URL"
+[[ -n "$CISCO_DEB_URL" ]] || echo "Cisco: no CISCO_DEB_URL in $CONF — method (b) not installed; (a) NetworkManager-openconnect needs no package"
+
+shopt -s nullglob
+for deb in "$PKGS"/*.deb; do
+    f="/packages/$(basename "$deb")"
+    pkg=$(podman exec "$BOX" dpkg-deb -f "$f" Package) || { echo "!! $f is not a .deb"; RC=1; continue; }
+    want=$(podman exec "$BOX" dpkg-deb -f "$f" Version)
+    have=$(podman exec "$BOX" dpkg-query -W -f '${Status} ${Version}' "$pkg" 2>/dev/null)
+    [[ "$have" == "install ok installed $want" ]] && continue
+    echo "installing $pkg $want"
+    podman exec -e DEBIAN_FRONTEND=noninteractive "$BOX" sh -c 'apt-get update -qq && apt-get install -y -q "$1"' _ "$f" || RC=1
 done
 
 # Launchers for the vendor GUIs that are present. A rootful box needs sudo, so they open
-# in a terminal that asks for the password once.
+# in a terminal that asks once (the fingerprint works there too).
 launcher() {  # id, name, command inside the box
     local id="$1" name="$2" cmd="$3"; local f="$APPS/net-box-$id.desktop"
     if podman exec "$BOX" test -x "${cmd%% *}"; then
@@ -65,4 +98,5 @@ exec sudo podman exec \$t $BOX $tool "\$@"
 EOT
     chmod 0755 "$BIN/$tool"
 done
-echo "net box ready"
+[[ $RC == 0 ]] && echo "net box ready" || echo "net box: something failed (above; journalctl -u cosmic-net-box)"
+exit $RC

@@ -8,11 +8,14 @@
 #               enabled units, flatpaks, the packages in every box (R1)
 #   1. backup   local plain-file snapshots on the DAS (S2a, only when it is mounted)
 #               + restic to the off-site repository (S2b, only when online);
-#               scope: $HOME, all of /etc, /var state, VM disks (S2d)
+#               scope: $HOME, all of /etc, /var state, VM disks (S2d); then a restore
+#               probe: one random home file and the manifest back from each copy, compared
 #   2. drift    what is on the machine that the image and the dotfiles do not declare (O1)
 #   3. upgrade  bootc upgrade (STAGED: never --apply), flatpaks, Homebrew (as the
 #               user), distroboxes, firmware metadata (never firmware itself)
-#   4. report   /var/lib/cosmic-nightly/report.txt + a desktop notification
+#   4. accept   cosmic-acceptance --record: the spec's checks, daily, so a regression after
+#               an update shows the next morning; pins known-good deployments (L3, L5)
+#   5. report   /var/lib/cosmic-nightly/report.txt + a desktop notification
 #
 # NEVER reboots, never applies an update, never inhibits sleep (the laptop must still
 # hibernate in a bag mid-run; the job continues after resume). Every step runs even if
@@ -86,6 +89,7 @@ fi
 LOG="$LOGDIR/$(date +%F).log"
 exec > >(tee -a "$LOG") 2>&1
 SUMMARY=()
+LOCAL_OK=0; LOCAL_SNAP=""; OFFSITE_OK=0; ACCEPT=""
 
 run() { if [[ $DRY == 1 ]]; then echo "  [dry-run] $*"; else "$@"; fi; }
 # A step function returns 0 = ok, 99 = skipped (reason on stdout), anything else = failed.
@@ -138,6 +142,7 @@ var_excludes() {
 /lib/containers/storage/overlay-images/
 /lib/containers/storage/overlay-layers/
 /lib/systemd/coredump/
+/lib/net-box/packages/
 /roothome/.cache/
 EOF
     local d; for d in $VM_DIRS; do echo "/${d#/var/}/"; done
@@ -233,7 +238,7 @@ backup_local() {
         return 1
     fi
     run rm -rf "$today"; run mv "$partial" "$today"
-    mark_ok local
+    mark_ok local; LOCAL_OK=1; LOCAL_SNAP="$today"
     # VM disks: separately, only when changed and their VM is off; keep the last 2 copies
     local img name stamp
     while read -r img; do
@@ -282,7 +287,7 @@ backup_offsite() {
     run "${ns[@]}" restic backup --host "$(hostname)" --tag nightly --one-file-system --exclude-caches \
         --exclude-file=<( { home_excludes | sed -e "s|^/|$UHOME/|"; var_excludes | sed -e 's|^/|/var/|'; } | sed 's|/$||') \
         "$UHOME" /etc "${vp[@]}" || rc=1
-    [[ $rc == 0 ]] && mark_ok offsite
+    [[ $rc == 0 ]] && { mark_ok offsite; OFFSITE_OK=1; }
     # VM disks as for the local copy: only when their VM is off and the disk changed.
     while read -r img; do
         name=$(basename "$img")
@@ -329,6 +334,42 @@ restore_point() {
     return 0
 }
 
+# S2/R1: prove tonight's copies restore. One random file of today's home snapshot and
+# the manifest come back from each copy written tonight, byte for byte (restic: decrypted
+# from B2 with `restic dump`). A mismatch FAILs the step; cosmic-acceptance reads the stamps.
+restore_probe() {
+    local rel p what src dasrel rpath rc=0 r2=0 did=0 picks=()
+    rel=$(cd "$HOME_SRC" 2>/dev/null && find . -xdev -maxdepth 4 -type f -size +0 -size -4M -readable 2>/dev/null \
+        | grep -vE '^\./(\.cache|\.local/share/Trash|\.local/share/containers/storage/overlay[^/]*|\.var/app/[^/]+/cache)/' \
+        | grep -v '|' | shuf -n1)
+    rel=${rel#./}
+    [[ -n "$rel" ]] && picks+=("home file|$HOME_SRC/$rel|home/$rel|$UHOME/$rel")
+    picks+=("manifest|$STATE/manifest/bootc-status.json|var/lib/cosmic-nightly/manifest/bootc-status.json|$STATE/manifest/bootc-status.json")
+    if [[ $DRY == 1 ]]; then echo "  [dry-run] restore probe: ${picks[*]%%|*}"; return 0; fi
+    if [[ $LOCAL_OK == 1 ]]; then
+        did=1
+        for p in "${picks[@]}"; do
+            IFS='|' read -r what src dasrel rpath <<< "$p"
+            if cmp -s "$src" "$LOCAL_SNAP/$dasrel"; then echo "  DAS: $what identical ($dasrel)"; else echo "  DAS: $what DIFFERS ($dasrel)"; rc=1; fi
+        done
+        [[ $rc == 0 ]] && mark_ok restore-probe-local
+    fi
+    if [[ $OFFSITE_OK == 1 ]]; then
+        did=1
+        for p in "${picks[@]}"; do
+            IFS='|' read -r what src dasrel rpath <<< "$p"
+            if restic dump --host "$(hostname)" --tag nightly latest "$rpath" 2>/dev/null | cmp -s "$src" -; then
+                echo "  B2:  $what identical ($rpath)"
+            else
+                echo "  B2:  $what DIFFERS or missing ($rpath)"; r2=1
+            fi
+        done
+        if [[ $r2 == 0 ]]; then mark_ok restore-probe-offsite; else rc=1; fi
+    fi
+    (( did )) || { echo "no copy was written tonight"; return 99; }
+    return $rc
+}
+
 # ── 2. drift report ──────────────────────────────────────────────────
 drift() {
     local out="$STATE/drift.txt" ignore="$SHARE/drift-ignore.regex"
@@ -369,7 +410,16 @@ drift() {
 }
 
 # ── 3. upgrades (staged; nothing is applied, nothing reboots) ────────
-upgrade_image()    { run bootc upgrade --quiet; }
+# L6: the size of what the staged upgrade fetched, one line a night (cosmic-acceptance shows it).
+upgrade_image() {
+    [[ $DRY == 1 ]] && { run bootc upgrade; return 0; }
+    local out rc size
+    out=$(bootc upgrade 2>&1); rc=$?
+    echo "$out" | tail -5
+    size=$(grep -oE 'layers needed: [0-9]+ \([^)]*\)' <<< "$out" | tail -1)
+    [[ -n "$size" ]] && echo "$(date +%F) $size" >> "$STATE/download-size.log"
+    return $rc
+}
 upgrade_flatpaks() { run flatpak update --system -y --noninteractive && run as_user flatpak update --user -y --noninteractive; }
 upgrade_brew() {
     brew_ok || { echo "Homebrew not set up for $U"; return 99; }
@@ -380,6 +430,7 @@ upgrade_boxes() {
     run as_user distrobox upgrade --all || rc=1          # rootless boxes: dev, claude, rocm
     if podman container exists net 2>/dev/null; then       # rootful box (VPN clients, network tools)
         run distrobox upgrade --root net || rc=1
+        run /usr/libexec/cosmic-net-box || rc=1           # newer vendor .debs from their publishers (F10)
     fi
     return $rc
 }
@@ -413,7 +464,7 @@ recreate_boxes() {
     return $rc
 }
 
-# Metadata only; firmware is never installed by this job (fwupdmgr update is a manual step).
+# Metadata only; firmware is never installed by this job (it may reboot; that stays your call).
 firmware_metadata() { run fwupdmgr refresh --force >/dev/null 2>&1; fwupdmgr get-updates 2>/dev/null | head -20 || true; return 0; }
 
 # ── run ──────────────────────────────────────────────────────────────
@@ -423,6 +474,7 @@ step "snapshot of /var/home (S2e)"  daily_snapshot
 step "backup: local snapshot (DAS)" backup_local
 step "backup: off-site (restic)"    backup_offsite
 step "restore point (R1)"           restore_point
+[[ $MODE == nightly ]] && step "restore probe (S2)" restore_probe
 if [[ $MODE == catch-up ]]; then
     # No drift report, upgrades or notification: the nightly run does those.
     printf '%s\n' "${SUMMARY[@]}" | LC_ALL=C sort -s -k1,1 > "$STATE/catch-up.txt"
@@ -436,15 +488,24 @@ step "upgrade: Homebrew (as $U)"    upgrade_brew
 step "upgrade: distroboxes"         upgrade_boxes
 step "boxes: monthly rebuild"       recreate_boxes
 step "firmware: metadata"           firmware_metadata
+# 4. acceptance, daily: a regression after tonight's changes shows in the morning (L5, L3)
+acceptance() {
+    [[ $DRY == 1 ]] && { echo "  [dry-run] cosmic-acceptance --record"; return 0; }
+    ACCEPT=$(/usr/bin/cosmic-acceptance --record 2>&1); local rc=$?
+    echo "$ACCEPT"; return $rc
+}
+step "acceptance (spec section 6)"  acceptance
 
 # ── 4. report ────────────────────────────────────────────────────────
-REPORT="$STATE/report.txt"
+# A dry run (cosmic-acceptance runs one) must not replace the night's report.
+REPORT="$STATE/report.txt"; [[ $DRY == 1 ]] && REPORT="$STATE/report-dry-run.txt"
 {
     echo "Nightly job $(date '+%F %R') — $(hostname)"
     printf '%s\n' "${SUMMARY[@]}" | LC_ALL=C sort -s -k1,1     # FAIL first, then ok, skip
     echo
     echo "Staged image: $(bootc status --format=json 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin)["status"].get("staged"); print(s["image"]["image"]["image"]+" (applies at the next reboot)" if s else "none")' 2>/dev/null || echo unknown)"
     echo "Drift: $(grep -vc '^--' "$STATE/drift.txt" 2>/dev/null || echo '?') item(s) — $STATE/drift.txt"
+    [[ -n "$ACCEPT" ]] && { echo "${ACCEPT%%$'\n'*}"; grep -E '^  (FAIL|INFO  L3)' <<< "$ACCEPT"; }
     echo "Restore point: local $( (( $(age_h local) == 9999 )) && echo never || echo "$(age_h local) h ago" ), off-site $( (( $(age_h offsite) == 9999 )) && echo never || echo "$(age_h offsite) h ago" ); manifest in $STATE/manifest"
     echo "Log: $LOG"
 } > "$REPORT"

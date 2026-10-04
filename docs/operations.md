@@ -32,9 +32,10 @@ Anything changed by hand outside these shows up in the next drift report.
 | --- | --- |
 | `/usr/bin/cosmic-nightly` | The one scheduled job (04:30 + hourly catch-up): manifest, the daily home snapshot, backups to the DAS and B2, drift report, staged upgrades (image, flatpaks, Homebrew, boxes), report. Never reboots. `--dry-run`, `--catch-up` |
 | `/usr/bin/cosmic-nightly-notify` | Shows the report once at login |
-| `/usr/bin/cosmic-acceptance` | Spec section 6, automatic part; `--user` for the user layer; `--pin` pins the accepted deployment |
+| `/usr/bin/cosmic-acceptance` | Spec section 6 with nothing ticked by hand: live state + evidence from use (PASS / FAIL / WAIT / YOU); `--exercise` runs the active trials once (it suspends and hibernates); the nightly job runs it daily (`--record`) and it pins known-good deployments (L3) |
+| `cosmic-evidence-sleep` (service), `cosmic-evidence-tunnel@` (udev) | Recorders for acceptance: battery and Bluetooth around every sleep; routes and DNS whenever a VPN tunnel comes up. Journal only (`journalctl -t cosmic-evidence`) |
 | `/usr/bin/cosmic-enroll` | Fingerprint, then TPM2 + PIN on every LUKS device (`--check` to look) |
-| `cosmic-signed-origin`, `cosmic-hibernation`, `cosmic-net-box` (services) | First boot finishes alone: signature-verified updates, hibernation kargs, the rootful `net` box (VPN clients from `/var/lib/net-box/installers/`, nmap/mtr/tcpdump wrappers in `/usr/local/bin`) |
+| `cosmic-signed-origin`, `cosmic-hibernation`, `cosmic-net-box` (services) | First boot finishes alone: signature-verified updates, hibernation kargs, the rootful `net` box (VPN clients as `.deb`s fetched from their publishers and installed with apt: Windscribe from its download URL, Cisco from `CISCO_DEB_URL` in the private `net-box.env`, nmap/mtr/tcpdump wrappers in `/usr/local/bin`) |
 | `/usr/bin/cac-status` | CAC on the host: pcscd, OpenSC, DoD roots, readers |
 | `/usr/bin/win11-cac` | The default way to hand the CAC reader to the Win11 VM and back (`attach` / `detach` / `status`); SPICE redirection in the VM window is the fallback |
 | `/usr/bin/enable-hibernation.sh` | Check/repair resume and LUKS kargs, swap, SELinux module. `--check` |
