@@ -4,29 +4,28 @@
 # nightly job after it upgrades the box; idempotent, so a run with nothing to do changes nothing.
 #
 #   1. create the box from /usr/share/fedora-cosmic-atomic/net-box.ini if it is missing
-#   2. fetch each vendor .deb from its publisher (spec F10) into /var/lib/net-box/packages/,
-#      only when the publisher's file changed:
-#        Windscribe (N5)  its stable download URL (redirects to the current release)
-#        Cisco (N4b)      CISCO_DEB_URL in /etc/fedora-cosmic-atomic/net-box.env (private: Cisco
-#                         publishes the .deb only behind a login, so the work IT's link goes there)
-#   3. install each .deb the standard way (apt-get install, dependencies from apt) when the
-#      package is missing or at another version
+#   2. Windscribe (N5): fetch its .deb from the publisher's stable download URL (spec F10)
+#      into /var/lib/net-box/packages/, only when the publisher's file changed, and install it
+#      the standard way (apt-get install) when it is missing or at another version
+#   3. Cisco (N4b, the noted F10 exception): run the kept web-deploy installer
+#      /var/lib/net-box/installers/cisco-secure-client-*.sh (private, root-only; migration
+#      M10 puts it there) inside the box, once per installer file. It writes /usr and its own
+#      systemd unit, which the read-only host does not allow. The headend upgrades the client
+#      on connect afterwards.
 #   4. menu launchers for the vendor apps found in the box (/usr/local/share/applications)
 #   5. root-owned wrappers in /usr/local/bin for the network tools (nmap, mtr, tcpdump)
 set -uo pipefail
 INI=/usr/share/fedora-cosmic-atomic/net-box.ini
-CONF=/etc/fedora-cosmic-atomic/net-box.env
 BOX=net
 PKGS=/var/lib/net-box/packages
+INST=/var/lib/net-box/installers
 APPS=/usr/local/share/applications
 BIN=/usr/local/bin
 WINDSCRIBE_URL="https://windscribe.com/install/desktop/linux_deb_x64"
-CISCO_DEB_URL=""
-# shellcheck disable=SC1090
-[[ -r "$CONF" ]] && . "$CONF"
 RC=0
 
 install -d -m 0755 "$PKGS" "$APPS" "$BIN"
+install -d -m 0700 "$INST"
 
 if ! podman container exists "$BOX"; then
     echo "creating the $BOX box from $INI"
@@ -52,8 +51,6 @@ fetch() {
     rm -f "$dst.part"
 }
 fetch windscribe "$WINDSCRIBE_URL"
-fetch cisco-secure-client "$CISCO_DEB_URL"
-[[ -n "$CISCO_DEB_URL" ]] || echo "Cisco: no CISCO_DEB_URL in $CONF — method (b) not installed; (a) NetworkManager-openconnect needs no package"
 
 shopt -s nullglob
 for deb in "$PKGS"/*.deb; do
@@ -64,6 +61,26 @@ for deb in "$PKGS"/*.deb; do
     [[ "$have" == "install ok installed $want" ]] && continue
     echo "installing $pkg $want"
     podman exec -e DEBIAN_FRONTEND=noninteractive "$BOX" sh -c 'apt-get update -qq && apt-get install -y -q "$1"' _ "$f" || RC=1
+done
+
+# Cisco: each kept installer runs once, in an empty folder (the web-deploy script asks for
+# the license only when a license.txt sits beside it). A failure is reported (this unit's
+# log, cosmic-acceptance N4) and not retried until a new installer file arrives or the
+# marker goes. A newer client (the headend upgraded it) makes the script refuse: fine.
+sh_files=("$INST"/cisco-secure-client-*.sh)
+(( ${#sh_files[@]} )) || echo "Cisco: no kept installer in $INST — method (b) not installed (migration M10 puts it there)"
+for sh in "${sh_files[@]}"; do
+    name=$(basename "$sh"); stamp="/var/lib/cosmic-net-box/$name.done"
+    podman exec "$BOX" test -e "$stamp" && continue
+    [[ -e "$INST/failed-$name" ]] && { echo "!! $name failed before ($INST/failed-$name); not retried"; RC=1; continue; }
+    echo "installing $name"
+    out=$(podman exec "$BOX" sh -c 'd=$(mktemp -d) && cd "$d" && sh "/installers/$1"' _ "$name" </dev/null 2>&1); rc=$?
+    tail -5 <<< "$out"
+    if [[ $rc == 0 ]] || grep -q "already installed" <<< "$out"; then
+        podman exec "$BOX" sh -c 'mkdir -p /var/lib/cosmic-net-box && touch "$1"' _ "$stamp"
+    else
+        echo "!! $name failed (exit $rc)"; printf '%s\n' "$out" > "$INST/failed-$name"; RC=1
+    fi
 done
 
 # Launchers for the vendor GUIs that are present. A rootful box needs sudo, so they open
