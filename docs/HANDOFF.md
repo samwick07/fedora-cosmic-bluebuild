@@ -16,7 +16,9 @@ Last updated: 2026-10-05 (B2 layout proposed: one shared repository; next is the
 - **B2 off-site (proposed, this PR):** one restic repository that frmwrk creates and dsktp
   joins later, so what Syncthing keeps identical is stored once (S2f); the Win11 VM disk gets
   `discard='unmap'` (V6). dsktp's backups are postponed with the rest of dsktp (spec 7.3).
-- **NAS (not in the spec yet):** design options discussed 2026-10-05; nothing decided.
+- **NAS (next PR, stacked on this one):** S2g confirmed (nightly local copy to the NAS, history
+  in its snapshots, Tailscale by default); S2h (DAS = slow copy of every machine) and S2i
+  (Syncthing hub on the NAS) proposed. Nothing built until the NAS is bought.
 - **Workstation export complete (W1, W2, W4, W5):** volume archives, the compose project,
   Cisco facts and the kept installer, Notepad++ settings in `DAS/migration/`; the last
   Workstation backup is in the old repo (`restic check` clean). Nothing else is needed
