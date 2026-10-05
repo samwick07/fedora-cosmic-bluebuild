@@ -5,18 +5,23 @@ where things stand and the exact next step. No personal values here (write `$SIT
 Private facts: `dotfiles/.migration-prep/HANDOFF.md`; the story so far:
 `dotfiles/.migration-prep/JOURNAL.md`.
 
-Last updated: 2026-10-05 (B2 layout proposed: one shared repository; next is the 2TB install)
+Last updated: 2026-10-05 (B2 deferred until the migration settles; next is the 2TB install)
 
 ## Where things stand
 - **Built, not yet run on hardware.** The laptop runs the 4TB Workstation; the 2TB waits in
   the DAS enclosure for a fresh install. Image, user layer and migration are written,
   linted, unit-tested with stubs, and the image builds green in CI.
-- **Open PRs:** this one (spec S2f, V6 proposed; nothing built). Drift engine (O2, F11)
-  merged 2026-10-05 (#20); built later in planned sprints, after step 3.
-- **B2 off-site (proposed, this PR):** one restic repository that frmwrk creates and dsktp
-  joins later, so what Syncthing keeps identical is stored once (S2f); the Win11 VM disk gets
-  `discard='unmap'` (V6). dsktp's backups are postponed with the rest of dsktp (spec 7.3).
-- **NAS (not in the spec yet):** design options discussed 2026-10-05; nothing decided.
+- **Open PRs:** this one (S2b deferral proposed; also lands the NAS design, #22, which merged
+  into the already-merged #21 branch instead of `main`). Drift engine (O2, F11) merged
+  2026-10-05 (#20); built later in planned sprints, after step 3.
+- **B2 off-site: deferred** (S2b, proposed) until frmwrk's migration has settled. Layout
+  decided: one restic repository that frmwrk creates and dsktp joins later (S2f); the Win11
+  VM disk gets `discard='unmap'` (V6). No off-site copy until then (accepted risk). dsktp's
+  backups are postponed with the rest of dsktp (spec 7.2).
+- **NAS (confirmed, not bought):** nightly copy to the NAS over any connection, history in its
+  snapshots (S2g); the DAS mounted in the NAS as the slow copy of every machine (S2h);
+  Syncthing on the NAS as a receive-only hub (S2i); the 2TB becomes a blank replacement disk
+  in the NAS (L4, no warm spare). `docs/disaster-recovery.md` follows L4 when it is built.
 - **Workstation export complete (W1, W2, W4, W5):** volume archives, the compose project,
   Cisco facts and the kept installer, Notepad++ settings in `DAS/migration/`; the last
   Workstation backup is in the old repo (`restic check` clean). Nothing else is needed
@@ -45,9 +50,10 @@ Last updated: 2026-10-05 (B2 layout proposed: one shared repository; next is the
   restic to B2 (`--tag nightly`), restore probe, hourly catch-up; set up by M11.
 
 ## Next (in order)
-1. Merge this PR (confirms S2f, V6; builds nothing). Check that the 06:17 UTC cron fires;
-   if not, open an issue. Then, small PR: `nightly.example.env` gets a generic repository
-   path; M11 in the dotfiles notes that it creates the shared repository.
+1. Merge this PR (confirms the S2b deferral; lands S2g–S2i, L4). Then a small build PR:
+   `OFFSITE_DEFERRED` in `cosmic-nightly`, `cosmic-acceptance` (DEFERRED; DAS alone for the
+   restore probe and R1) and `nightly.example.env` (set, plus a generic repository path).
+   Check that the 06:17 UTC cron fires; if not, open an issue.
 2. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
    (boot line `inst.ks=… cosmic.disk=<by-id name> cosmic.hostname=frmwrk-test`) → reboot
    once → `sudo cosmic-acceptance`, then `--exercise`. Done when the image row of spec
@@ -56,7 +62,9 @@ Last updated: 2026-10-05 (B2 layout proposed: one shared repository; next is the
    Done when the user-layer row passes.
 4. 2TB, migration: `migrate.sh all`; use it daily; WAIT lines clear with use.
 5. Before the real 4TB install: `migrate.sh export w5` on the Workstation. Then the 4TB
-   with no changes; then the warm spare (L4); rechunk only if L6 says so.
+   with no changes; rechunk only if L6 says so. The 2TB then waits for the NAS (L4).
+6. When the migration has settled (your call): end the S2b deferral — create the bucket
+   and keys, remove `OFFSITE_DEFERRED`, the next night creates the shared repository (S2f).
 
 ## Watch on the 2TB (unproven until hardware)
 - Cisco in a rootful distrobox (distrobox#1536) and whether the VPN's DNS reaches the
