@@ -12,7 +12,7 @@ Last updated: 2026-10-04 (D10 tidy home in review; next is the 2TB install)
   the DAS enclosure for a fresh install. Image, user layer and migration are written,
   linted, unit-tested with stubs, and the image builds green in CI.
 - **Open PRs:** this one (spec D10, a tidy home: the image reads the Brewfile at
-  `~/.config/homebrew/Brewfile`) and dotfiles `home-tidy-d10` (moves git config, the Brewfile
+  `~/.config/homebrew/Brewfile`) and dotfiles #11 (moves git config, the Brewfile
   and bash history to their XDG locations). Merge both together, before step 3.
 - **Workstation export complete (W1, W2, W4, W5):** volume archives, the compose project,
   Cisco facts and the kept installer, Notepad++ settings in `DAS/migration/`; the last
@@ -42,7 +42,7 @@ Last updated: 2026-10-04 (D10 tidy home in review; next is the 2TB install)
   restic to B2 (`--tag nightly`), restore probe, hourly catch-up; set up by M11.
 
 ## Next (in order)
-1. Merge this PR and the dotfiles `home-tidy-d10` PR together. Check that the 06:17 UTC cron
+1. Merge this PR and dotfiles #11 together. Check that the 06:17 UTC cron
    fires; if not, open an issue.
 2. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
    (boot line `inst.ks=… cosmic.disk=<by-id name> cosmic.hostname=frmwrk-test`) → reboot
