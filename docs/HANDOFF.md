@@ -14,6 +14,8 @@ Last updated: 2026-10-04 (D10 tidy home in review; next is the 2TB install)
 - **Open PRs:** this one (spec D10, a tidy home: the image reads the Brewfile at
   `~/.config/homebrew/Brewfile`) and dotfiles #11 (moves git config, the Brewfile
   and bash history to their XDG locations). Merge both together, before step 3.
+- **Design in review:** drift engine (`docs/drift-engine.md`, spec O2 + F11 proposed). Builds
+  after the 2TB user-layer step (step 3); tested during the migration step (step 4).
 - **Workstation export complete (W1, W2, W4, W5):** volume archives, the compose project,
   Cisco facts and the kept installer, Notepad++ settings in `DAS/migration/`; the last
   Workstation backup is in the old repo (`restic check` clean). Nothing else is needed
