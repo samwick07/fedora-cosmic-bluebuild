@@ -384,11 +384,12 @@ drift() {
         comm -13 <(flatpak list --system --app --columns=application 2>/dev/null | sort -u) <(grep -v '^#' "$SHARE/flatpaks.list" | sed '/^$/d' | sort -u)
         echo "-- user flatpaks"
         as_user flatpak list --user --app --columns=application 2>/dev/null || true
-        if brew_ok && [[ -r "$UHOME/.Brewfile" ]]; then
-            echo "-- Homebrew: in ~/.Brewfile but not installed"
-            as_user "$BREW" bundle check --file="$UHOME/.Brewfile" --verbose --no-upgrade 2>&1 | grep -v "dependencies are satisfied" || true
-            echo "-- Homebrew: installed but not in ~/.Brewfile"
-            as_user "$BREW" bundle cleanup --file="$UHOME/.Brewfile" 2>&1 | grep -vE "^(Would|Run \`brew bundle cleanup)" || true
+        local brewfile="$UHOME/.config/homebrew/Brewfile"   # the dotfiles' Brewfile (spec C1, D10)
+        if brew_ok && [[ -r "$brewfile" ]]; then
+            echo "-- Homebrew: in the Brewfile but not installed"
+            as_user "$BREW" bundle check --file="$brewfile" --verbose --no-upgrade 2>&1 | grep -v "dependencies are satisfied" || true
+            echo "-- Homebrew: installed but not in the Brewfile"
+            as_user "$BREW" bundle cleanup --file="$brewfile" 2>&1 | grep -vE "^(Would|Run \`brew bundle cleanup)" || true
         fi
         echo "-- boxes: packages added (+) or removed (-) since the box was created from its manifest"
         local cur b base

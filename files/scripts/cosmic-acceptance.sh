@@ -483,9 +483,12 @@ if [[ -r $NSTATE/download-size.log ]]; then info L6 "staged downloads (last 3): 
 USER_DONE=0; [[ -d "$UHOME/.local/share/chezmoi" ]] && USER_DONE=1
 if [[ $USER_LAYER == 1 || ( $USER_LAYER == auto && $USER_DONE == 1 ) ]]; then
     section "user layer — $U"
-    check C1 "every formula in ~/.Brewfile installed" as_user "$BREW_PREFIX/bin/brew" bundle check --file "$UHOME/.Brewfile" --no-upgrade
+    check C1 "every formula in ~/.config/homebrew/Brewfile installed" as_user "$BREW_PREFIX/bin/brew" bundle check --file "$UHOME/.config/homebrew/Brewfile" --no-upgrade
     check D9 "dotfiles in their declared state (chezmoi status empty)" sh -c \
         "out=\$(runuser -u '$U' -- env HOME='$UHOME' PATH=\"/usr/bin:$BREW_PREFIX/bin\" chezmoi status); [ -z \"\$out\" ] || { echo \"\$out\"; exit 1; }"
+    check D10 "nothing managed in ~ itself but .bashrc, .bash_profile; bash history in ~/.local/state" sh -c \
+        "out=\$(runuser -u '$U' -- env HOME='$UHOME' PATH=\"/usr/bin:$BREW_PREFIX/bin\" chezmoi managed --include=files | grep -v / | grep -vxE '\\.bashrc|\\.bash_profile'); [ -z \"\$out\" ] || { echo \"managed in ~: \$out\"; exit 1; }; \
+         h=\$(runuser -u '$U' -- env HOME='$UHOME' PATH=/usr/bin:$BREW_PREFIX/bin bash -ic 'echo \$HISTFILE' 2>/dev/null | tail -n1); [ \"\$h\" = '$UHOME/.local/state/bash/history' ] || { echo \"HISTFILE=\$h\"; exit 1; }"
     check E9 "boxes dev, claude, rocm exist" sh -c "for b in dev claude rocm; do runuser -u '$U' -- podman container exists \$b || { echo \"missing \$b\"; exit 1; }; done"
     check S1 "Syncthing user service enabled" sh -c "runuser -u '$U' -- env XDG_RUNTIME_DIR=/run/user/$UID_U systemctl --user is-enabled --quiet syncthing.service"
     check D2 "Ghostty exported from dev; COSMIC Terminal on the host" sh -c \
