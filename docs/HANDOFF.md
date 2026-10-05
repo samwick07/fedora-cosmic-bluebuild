@@ -11,13 +11,12 @@ Last updated: 2026-10-05 (B2 layout proposed: one shared repository; next is the
 - **Built, not yet run on hardware.** The laptop runs the 4TB Workstation; the 2TB waits in
   the DAS enclosure for a fresh install. Image, user layer and migration are written,
   linted, unit-tested with stubs, and the image builds green in CI.
-- **Open PRs:** this one (spec S2f–S2h, V6 proposed; nothing built). Drift engine (O2, F11)
+- **Open PRs:** this one (spec S2f, V6 proposed; nothing built). Drift engine (O2, F11)
   merged 2026-10-05 (#20); built later in planned sprints, after step 3.
-- **B2 off-site (proposed, this PR):** one restic repository for frmwrk and dsktp, so what
-  Syncthing keeps identical is stored once (S2f); dsktp starts uploading now from its
-  Workstation (S2g, interim) and backs up its daily-booted Windows drive as a bootable
-  image (S2h); the Win11 VM disk gets `discard='unmap'` (V6). Open: two dsktp facts
-  (dual boot or whole-disk VM; BitLocker or not) pick S2h's mechanics.
+- **B2 off-site (proposed, this PR):** one restic repository that frmwrk creates and dsktp
+  joins later, so what Syncthing keeps identical is stored once (S2f); the Win11 VM disk gets
+  `discard='unmap'` (V6). dsktp's backups are postponed with the rest of dsktp (spec 7.3).
+- **NAS (not in the spec yet):** design options discussed 2026-10-05; nothing decided.
 - **Workstation export complete (W1, W2, W4, W5):** volume archives, the compose project,
   Cisco facts and the kept installer, Notepad++ settings in `DAS/migration/`; the last
   Workstation backup is in the old repo (`restic check` clean). Nothing else is needed
@@ -46,11 +45,9 @@ Last updated: 2026-10-05 (B2 layout proposed: one shared repository; next is the
   restic to B2 (`--tag nightly`), restore probe, hourly catch-up; set up by M11.
 
 ## Next (in order)
-1. Answer the two dsktp facts, then merge this PR (confirms S2f–S2h, V6; builds nothing).
-   Check that the 06:17 UTC cron fires; if not, open an issue.
-1a. In parallel, on dsktp (after the merge): build S2g/S2h in dotfiles
-   `.migration-prep/dsktp/` (private), switch `nightly.example.env` to a generic repository
-   path, add `restic key add` to M11; you create the bucket and keys, run the first upload.
+1. Merge this PR (confirms S2f, V6; builds nothing). Check that the 06:17 UTC cron fires;
+   if not, open an issue. Then, small PR: `nightly.example.env` gets a generic repository
+   path; M11 in the dotfiles notes that it creates the shared repository.
 2. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
    (boot line `inst.ks=… cosmic.disk=<by-id name> cosmic.hostname=frmwrk-test`) → reboot
    once → `sudo cosmic-acceptance`, then `--exercise`. Done when the image row of spec
