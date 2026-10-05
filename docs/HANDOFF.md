@@ -16,7 +16,11 @@ Last updated: 2026-10-05 (B2 layout proposed: one shared repository; next is the
 - **B2 off-site (proposed, this PR):** one restic repository that frmwrk creates and dsktp
   joins later, so what Syncthing keeps identical is stored once (S2f); the Win11 VM disk gets
   `discard='unmap'` (V6). dsktp's backups are postponed with the rest of dsktp (spec 7.3).
-- **NAS (not in the spec yet):** design options discussed 2026-10-05; nothing decided.
+- **NAS (next PR, stacked on this one):** S2g, S2h, S2i confirmed: nightly copy to the NAS
+  over any connection, history in its snapshots; the DAS mounted in the NAS as the slow copy
+  of every machine; Syncthing on the NAS as a receive-only hub. L4 proposed to change: the
+  2TB becomes a blank replacement disk in the NAS (no warm spare). Nothing built until the
+  NAS is bought; `docs/disaster-recovery.md` follows L4 when it is.
 - **Workstation export complete (W1, W2, W4, W5):** volume archives, the compose project,
   Cisco facts and the kept installer, Notepad++ settings in `DAS/migration/`; the last
   Workstation backup is in the old repo (`restic check` clean). Nothing else is needed
@@ -56,7 +60,7 @@ Last updated: 2026-10-05 (B2 layout proposed: one shared repository; next is the
    Done when the user-layer row passes.
 4. 2TB, migration: `migrate.sh all`; use it daily; WAIT lines clear with use.
 5. Before the real 4TB install: `migrate.sh export w5` on the Workstation. Then the 4TB
-   with no changes; then the warm spare (L4); rechunk only if L6 says so.
+   with no changes; rechunk only if L6 says so. The 2TB then waits for the NAS (L4).
 
 ## Watch on the 2TB (unproven until hardware)
 - Cisco in a rootful distrobox (distrobox#1536) and whether the VPN's DNS reaches the
