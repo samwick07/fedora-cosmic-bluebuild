@@ -5,15 +5,16 @@ where things stand and the exact next step. No personal values here (write `$SIT
 Private facts: `dotfiles/.migration-prep/HANDOFF.md`; the story so far:
 `dotfiles/.migration-prep/JOURNAL.md`.
 
-Last updated: 2026-10-04 (D10 tidy home in review; next is the 2TB install)
+Last updated: 2026-10-05 (drift engine designed; next is the 2TB install)
 
 ## Where things stand
 - **Built, not yet run on hardware.** The laptop runs the 4TB Workstation; the 2TB waits in
   the DAS enclosure for a fresh install. Image, user layer and migration are written,
   linted, unit-tested with stubs, and the image builds green in CI.
-- **Open PRs:** this one (spec D10, a tidy home: the image reads the Brewfile at
-  `~/.config/homebrew/Brewfile`) and dotfiles #11 (moves git config, the Brewfile
-  and bash history to their XDG locations). Merge both together, before step 3.
+- **Open PRs:** this one (drift engine design and spec O2/F11; nothing built). D10 (a tidy home: git config,
+  Brewfile, bash history in XDG locations) merged 2026-10-04 (#19, dotfiles #11).
+- **Drift engine designed** (`docs/drift-engine.md`, spec O2 + F11 confirmed when this PR
+  merges). Built later in planned sprints, after step 3; requirements set at sprint planning.
 - **Workstation export complete (W1, W2, W4, W5):** volume archives, the compose project,
   Cisco facts and the kept installer, Notepad++ settings in `DAS/migration/`; the last
   Workstation backup is in the old repo (`restic check` clean). Nothing else is needed
@@ -42,8 +43,8 @@ Last updated: 2026-10-04 (D10 tidy home in review; next is the 2TB install)
   restic to B2 (`--tag nightly`), restore probe, hourly catch-up; set up by M11.
 
 ## Next (in order)
-1. Merge this PR and dotfiles #11 together. Check that the 06:17 UTC cron
-   fires; if not, open an issue.
+1. Merge this PR (confirms O2/F11; builds nothing). Check that the 06:17 UTC cron fires;
+   if not, open an issue.
 2. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
    (boot line `inst.ks=… cosmic.disk=<by-id name> cosmic.hostname=frmwrk-test`) → reboot
    once → `sudo cosmic-acceptance`, then `--exercise`. Done when the image row of spec
