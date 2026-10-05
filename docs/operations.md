@@ -18,7 +18,7 @@ Every change starts as a row in `docs/end-state.md`; then:
 | To add | Where |
 | --- | --- |
 | A GUI app | `default-flatpaks` in `recipes/common-modules.yml` **and** `files/share/flatpaks.list` (the smoke test compares them) |
-| A CLI tool | `~/.Brewfile` in the dotfiles → `chezmoi apply` (installs it) |
+| A CLI tool | the Brewfile (`~/.config/homebrew/Brewfile`) in the dotfiles → `chezmoi apply` (installs it) |
 | A toolchain, IDE or distro package | `~/.config/distrobox/distrobox.ini` in the dotfiles → `chezmoi apply`; rebuild a box: `distrobox assemble create --file ~/.config/distrobox/distrobox.ini --name dev --replace` |
 | Something that needs the kernel, a host service, or root at night | `recipes/` → pull request → CI builds and smoke-tests it → merge → the nightly build publishes it |
 | A dotfile | `chezmoi edit …` → `chezmoi apply` → commit, push; `chezmoi update` on the other machine |

@@ -61,7 +61,7 @@ offline_report() {
     sec "step 4/6: CAC"       bash -c "ls '$ETC/pki/ca-trust/source/anchors' 2>/dev/null | head; echo '--- user nssdb:'; ls -la '$H/.pki/nssdb' 2>/dev/null; certutil -L -d sql:'$H/.pki/nssdb' 2>/dev/null | grep -c 'DOD\|DoD' | sed 's/^/  DoD certs: /'; timeout 20 modutil -dbdir sql:'$H/.pki/nssdb' -list </dev/null 2>/dev/null | grep -A1 -i 'opensc\|CAC'"
     sec "step 5: libvirt"     bash -c "ls -la '$ETC/libvirt/qemu' 2>&1; ls '$VAR/lib/libvirt/qemu/nvram' '$VAR/lib/libvirt/swtpm' '$VAR/lib/libvirt/vm-images' 2>&1; grep -o '<uuid>[^<]*' '$ETC/libvirt/qemu/Win11VM.xml' 2>/dev/null"
     sec "step 6: chezmoi"     bash -c "git -C '$H/.local/share/chezmoi' log --oneline -3 2>&1; ls '$H/.config/chezmoi' 2>&1; command -v chezmoi >/dev/null && chezmoi state dump --persistent-state '$H/.config/chezmoi/chezmoistate.boltdb' 2>/dev/null | grep -o '\"[^\"]*run_once[^\"]*\"\|\"[^\"]*run_onchange[^\"]*\"' | sort -u"
-    sec "step 6: homebrew"    bash -c "ls '$VAR/home/linuxbrew/.linuxbrew/Cellar' 2>&1 | tr '\n' ' '; echo; ls -la '$H/.Brewfile' 2>&1"
+    sec "step 6: homebrew"    bash -c "ls '$VAR/home/linuxbrew/.linuxbrew/Cellar' 2>&1 | tr '\n' ' '; echo; ls -la '$H/.config/homebrew/Brewfile' 2>&1"
     sec "step 6: containers"  bash -c "f='$H/.local/share/containers/storage/overlay-containers/containers.json'; [[ -f \$f ]] && grep -o '\"names\":\[\"[^\"]*\"' \"\$f\" | cut -d'\"' -f4; echo '--- exported apps:'; ls '$H/.local/share/applications' 2>&1"
     sec "step 6: syncthing"   bash -c "ls -la '$H/.local/state/syncthing' '$H/.config/syncthing' 2>&1 | grep -v '^total'; ls '$H/.config/systemd/user' 2>/dev/null"
     sec "step 7: tailscale"   bash -c "ls -la '$VAR/lib/tailscale' 2>&1"
