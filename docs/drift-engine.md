@@ -1,8 +1,9 @@
 # Drift engine (`cosmic-drift`) — design
 
-**Status: proposed, 2026-10-04; revised 2026-10-05 after review.** Replaces the
-report-only drift step (spec O1) once approved. Spec rows: O2 (new, replaces O1) and F11
-(new) in `docs/end-state.md`, both `proposed`. Open points: section 16.
+**Status: approved when this design's pull request merges (drafted 2026-10-04, revised
+2026-10-05 after review).** Replaces the report-only drift step (spec O1). Spec rows: O2
+(new, replaces O1) and F11 (new) in `docs/end-state.md`. Implementation comes later, in
+planned sprints; their requirements are set at sprint planning. Deferred items: section 16.
 
 ## 1. Purpose
 
@@ -544,9 +545,11 @@ On hardware, `cosmic-acceptance --exercise` adds a drift trial:
 
 ## 14. Rollout
 
-1. Approve this design. O2 and F11 become `confirmed`, and O1 is folded into O2. J1 step
-   2, L5 and section 6 are updated in the implementation PR.
-2. Build after the 2TB **user-layer** step passes. The current O1 report covers the gap.
+1. This design is approved; O2 and F11 are `confirmed`, and O1 folds into O2 when O2 is
+   built. J1 step 2, L5 and section 6 change in the implementation PRs.
+2. Build in planned sprints, starting after the 2TB **user-layer** step passes. Sprint
+   scope and requirements are decided at sprint planning. The current O1 report covers
+   the gap.
 3. Test on the 2TB during the migration step. Tune the noise filters and collector rules
    against a real machine.
 4. The 4TB install gets the finished image with no changes (F6).
@@ -556,29 +559,25 @@ On hardware, `cosmic-acceptance --exercise` adds a drift trial:
 - Automatic reverts of any kind.
 - A GUI, and a separate login notification (the nightly report covers it).
 - The Win11 VM and its guest.
+- Bottles prefixes (section 16).
 - Files inside boxes (each box's `/etc`, vendor profiles in `net`); only packages are
   tracked.
 - Language-level global installs (`uv tool`, `npm -g` in `dev`): a later collector if
   they turn out to matter.
 - dsktp-specific sources (it inherits the engine when its spec section is written).
 
-## 16. Open points
+## 16. Deferred
 
-1. **Bottles prefixes: in or out of v1?** Assessment:
-   - **Detection is small.** Each bottle's `bottle.yml`, under the Bottles flatpak's data
-     directory, names its runner, installed dependencies and programs. A collector can
-     compare the bottles present, and their runner and dependency lists, with a declared
-     list.
-   - **Making it declarative is the larger part.** An adopted bottle needs a declared
-     form (name, runner, dependencies, the installer's publisher URL per F10), plus a
-     user-layer step that creates missing bottles from that list with `bottles-cli`. This
-     moves bottle creation out of the one-time migration (M8) into the user layer, which
-     changes spec row A11.
-   - **Parsing:** `bottle.yml` is YAML and Python has no YAML parser built in. The few
-     keys needed can be read with a minimal parser, or with the Bottles flatpak's own
-     Python. To be settled in the plan.
-   - **Revert inside a prefix is weak:** Wine dependencies don't uninstall cleanly. The
-     practical verdicts would be adopt, except, or recreate the bottle from its
-     declaration.
-2. **Applying one verdict to a whole group:** deferred until you've tested the
-   one-at-a-time flow.
+- **Applying one verdict to a whole group:** deferred until you've tested the
+  one-at-a-time flow.
+- **Bottles prefixes** (decided 2026-10-05: not in v1). Notes for the follow-up:
+  - **Detection is small:** each bottle's `bottle.yml` names its runner, installed
+    dependencies and programs.
+  - **Making it declarative is the larger part:** a declared bottle list (name, runner,
+    dependencies, installer URL per F10) and a user-layer step that creates missing
+    bottles with `bottles-cli`. This moves creation out of the migration (M8) and needs
+    a change to spec row A11 first.
+  - **Parsing:** `bottle.yml` is YAML, which Python's standard library can't read; use a
+    minimal parser or the Bottles flatpak's own Python.
+  - **Revert inside a prefix is weak:** the practical verdicts are adopt, except, or
+    recreate the bottle.
