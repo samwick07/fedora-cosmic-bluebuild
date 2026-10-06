@@ -224,15 +224,20 @@ backup_local() {
     # -A/-X keep ACLs and xattrs (SELinux labels); a target without them (some NAS) sets RSYNC_FLAGS=-aH
     local flags; read -r -a flags <<< "${RSYNC_FLAGS:--aHAX}"
     local rs=(rsync "${flags[@]}" --numeric-ids --delete --delete-excluded)
-    local rc=0 t
+    local rc=0 t hx vxf
+    # Exclude lists as real files: rsync 3.5 refuses --exclude-from=<(…) ("/dev/fd/63: Too
+    # many levels of symbolic links"), which failed every local snapshot.
+    hx=$(mktemp); vxf=$(mktemp)
+    home_excludes > "$hx"; var_excludes > "$vxf"
     run rm -rf "$dest"/.partial-*                          # leftovers of a failed night
     run mkdir -p "$partial"
     # $HOME, all of /etc, and /var state (S2d). /var stays on its own file system (-x)
     # and skips what is backed up elsewhere or rebuilt.
     local vx=(); for t in $VAR_SKIP_TOP; do vx+=(--exclude="/$t/"); done
-    run "${rs[@]}" ${prev:+--link-dest="$prev/home"} --exclude-from=<(home_excludes) "$HOME_SRC/" "$partial/home/" || rc=1
+    run "${rs[@]}" ${prev:+--link-dest="$prev/home"} --exclude-from="$hx" "$HOME_SRC/" "$partial/home/" || rc=1
     run "${rs[@]}" ${prev:+--link-dest="$prev/etc"} /etc/ "$partial/etc/" || rc=1
-    run "${rs[@]}" -x ${prev:+--link-dest="$prev/var"} "${vx[@]}" --exclude-from=<(var_excludes) /var/ "$partial/var/" || rc=1
+    run "${rs[@]}" -x ${prev:+--link-dest="$prev/var"} "${vx[@]}" --exclude-from="$vxf" /var/ "$partial/var/" || rc=1
+    rm -f "$hx" "$vxf"
     if [[ $rc != 0 ]]; then
         echo "  snapshot incomplete: kept as $partial for inspection; nothing pruned"
         return 1
