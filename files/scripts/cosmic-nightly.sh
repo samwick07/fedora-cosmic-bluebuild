@@ -7,7 +7,8 @@
 #   0. manifest what this machine is right now: image digest, kargs, layered packages,
 #               enabled units, flatpaks, the packages in every box (R1)
 #   1. backup   local plain-file snapshots on the DAS (S2a, only when it is mounted)
-#               + restic to the off-site repository (S2b, only when online);
+#               + restic to the off-site repository (S2b, only when online, and not
+#               while OFFSITE_DEFERRED is set: every report then says since when);
 #               scope: $HOME, all of /etc, /var state, VM disks (S2d); then a restore
 #               probe: one random home file and the manifest back from each copy, compared
 #   2. drift    what is on the machine that the image and the dotfiles do not declare (O1)
@@ -65,7 +66,19 @@ age_h() {  # hours since the last good backup to target $1 (local | offsite); 99
 }
 mark_ok() { [[ $DRY == 1 ]] || date +%s > "$STATE/last-$1"; }
 local_reachable()   { [[ -n "${LOCAL_SNAPSHOT_DIR:-}" && -d "${LOCAL_SNAPSHOT_DIR}" ]]; }
-offsite_reachable() { [[ -n "${RESTIC_REPOSITORY:-}" ]] && nm-online -q -t 30; }
+offsite_reachable() { [[ -z "$DEFERRED" && -n "${RESTIC_REPOSITORY:-}" ]] && nm-online -q -t 30; }
+
+# S2b: the off-site copy is deferred while nightly.env sets OFFSITE_DEFERRED (anything but
+# empty or 0). The date it was first seen is kept, so every report says since when there
+# has been no copy outside the house; removing the line ends the deferral (and the record).
+DEFER_FILE="$STATE/offsite-deferred-since"
+DEFERRED=""
+if [[ -n "${OFFSITE_DEFERRED:-}" && "${OFFSITE_DEFERRED}" != 0 ]]; then
+    [[ -s "$DEFER_FILE" || $DRY == 1 ]] || date +%F > "$DEFER_FILE"
+    DEFERRED=$(cat "$DEFER_FILE" 2>/dev/null || date +%F)
+elif [[ $DRY != 1 ]]; then
+    rm -f "$DEFER_FILE"
+fi
 
 # ── the daily snapshot of /var/home (S2e) ───────────────────────────
 # Only when /var/home is its own btrfs subvolume (the kickstart's layout, L1). Otherwise
@@ -92,7 +105,8 @@ SUMMARY=()
 LOCAL_OK=0; LOCAL_SNAP=""; OFFSITE_OK=0; ACCEPT=""
 
 run() { if [[ $DRY == 1 ]]; then echo "  [dry-run] $*"; else "$@"; fi; }
-# A step function returns 0 = ok, 99 = skipped (reason on stdout), anything else = failed.
+# A step function returns 0 = ok, 99 = skipped (reason on stdout), 98 = deferred by
+# decision (S2b), anything else = failed.
 step() {
     local name="$1" rc; shift
     echo; echo "== $name  $(date +%T)"
@@ -100,6 +114,7 @@ step() {
     case $rc in
         0)  SUMMARY+=("ok    $name") ;;
         99) SUMMARY+=("skip  $name") ;;
+        98) SUMMARY+=("defer $name (since $DEFERRED, S2b)") ;;
         *)  SUMMARY+=("FAIL  $name (exit $rc)") ;;
     esac
 }
@@ -224,15 +239,20 @@ backup_local() {
     # -A/-X keep ACLs and xattrs (SELinux labels); a target without them (some NAS) sets RSYNC_FLAGS=-aH
     local flags; read -r -a flags <<< "${RSYNC_FLAGS:--aHAX}"
     local rs=(rsync "${flags[@]}" --numeric-ids --delete --delete-excluded)
-    local rc=0 t
+    local rc=0 t hx vxf
+    # Exclude lists as real files: rsync 3.5 refuses --exclude-from=<(…) ("/dev/fd/63: Too
+    # many levels of symbolic links"), which failed every local snapshot.
+    hx=$(mktemp); vxf=$(mktemp)
+    home_excludes > "$hx"; var_excludes > "$vxf"
     run rm -rf "$dest"/.partial-*                          # leftovers of a failed night
     run mkdir -p "$partial"
     # $HOME, all of /etc, and /var state (S2d). /var stays on its own file system (-x)
     # and skips what is backed up elsewhere or rebuilt.
     local vx=(); for t in $VAR_SKIP_TOP; do vx+=(--exclude="/$t/"); done
-    run "${rs[@]}" ${prev:+--link-dest="$prev/home"} --exclude-from=<(home_excludes) "$HOME_SRC/" "$partial/home/" || rc=1
+    run "${rs[@]}" ${prev:+--link-dest="$prev/home"} --exclude-from="$hx" "$HOME_SRC/" "$partial/home/" || rc=1
     run "${rs[@]}" ${prev:+--link-dest="$prev/etc"} /etc/ "$partial/etc/" || rc=1
-    run "${rs[@]}" -x ${prev:+--link-dest="$prev/var"} "${vx[@]}" --exclude-from=<(var_excludes) /var/ "$partial/var/" || rc=1
+    run "${rs[@]}" -x ${prev:+--link-dest="$prev/var"} "${vx[@]}" --exclude-from="$vxf" /var/ "$partial/var/" || rc=1
+    rm -f "$hx" "$vxf"
     if [[ $rc != 0 ]]; then
         echo "  snapshot incomplete: kept as $partial for inspection; nothing pruned"
         return 1
@@ -272,6 +292,7 @@ prune_snapshots() {
 }
 
 backup_offsite() {
+    [[ -n "$DEFERRED" ]] && { echo "deferred since $DEFERRED (S2b): no off-site copy until OFFSITE_DEFERRED is removed from $CONF"; return 98; }
     [[ -n "${RESTIC_REPOSITORY:-}" ]] || { echo "no RESTIC_REPOSITORY in $CONF"; return 99; }
     if [[ $MODE == catch-up ]] && (( $(age_h offsite) < MAX_AGE_H )); then echo "last good copy $(age_h offsite) h ago"; return 99; fi
     nm-online -q -t 30 || { echo "offline"; return 99; }
@@ -324,12 +345,19 @@ daily_snapshot() {
 }
 
 # R1: at least one good copy (local or off-site) younger than a day, plus a margin
-# for the timer's random delay and a long run.
+# for the timer's random delay and a long run. While the off-site copy is deferred
+# (S2b), the local copy alone counts.
+offsite_age() {  # for reports: "N h ago" | never | deferred since DATE
+    local o; o=$(age_h offsite)
+    if [[ -n "$DEFERRED" ]]; then echo "deferred since $DEFERRED"
+    elif ((o == 9999)); then echo never; else echo "$o h ago"; fi
+}
 restore_point() {
     local l o newest
     l=$(age_h local); o=$(age_h offsite)
+    [[ -n "$DEFERRED" ]] && o=9999
     newest=$(( l < o ? l : o ))
-    echo "last good copy: local $( ((l == 9999)) && echo never || echo "$l h ago" ), off-site $( ((o == 9999)) && echo never || echo "$o h ago" )"
+    echo "last good copy: local $( ((l == 9999)) && echo never || echo "$l h ago" ), off-site $(offsite_age)"
     (( newest <= MAX_AGE_H + 2 )) || { echo "restore point is older than a day"; return 1; }
     return 0
 }
@@ -507,7 +535,8 @@ REPORT="$STATE/report.txt"; [[ $DRY == 1 ]] && REPORT="$STATE/report-dry-run.txt
     echo "Staged image: $(bootc status --format=json 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin)["status"].get("staged"); print(s["image"]["image"]["image"]+" (applies at the next reboot)" if s else "none")' 2>/dev/null || echo unknown)"
     echo "Drift: $(grep -vc '^--' "$STATE/drift.txt" 2>/dev/null || echo '?') item(s) — $STATE/drift.txt"
     [[ -n "$ACCEPT" ]] && { echo "${ACCEPT%%$'\n'*}"; grep -E '^  (FAIL|INFO  L3)' <<< "$ACCEPT"; }
-    echo "Restore point: local $( (( $(age_h local) == 9999 )) && echo never || echo "$(age_h local) h ago" ), off-site $( (( $(age_h offsite) == 9999 )) && echo never || echo "$(age_h offsite) h ago" ); manifest in $STATE/manifest"
+    echo "Restore point: local $( (( $(age_h local) == 9999 )) && echo never || echo "$(age_h local) h ago" ), off-site $(offsite_age); manifest in $STATE/manifest"
+    [[ -n "$DEFERRED" ]] && echo "No off-site copy since $DEFERRED (S2b deferral, an accepted risk): every copy is in one house"
     echo "Log: $LOG"
 } > "$REPORT"
 chmod 0644 "$REPORT"

@@ -17,7 +17,9 @@
 #   sudo cosmic-acceptance --pin        pin the booted deployment now (if nothing FAILs)
 #
 # PASS / FAIL; WAIT = evidence still to come from normal use (the line says what produces
-# it); YOU = a secret only you can type (everything before it is checked); INFO = a figure.
+# it); YOU = a secret only you can type (everything before it is checked); INFO = a figure;
+# DEFER = left out by decision (S2b: the off-site copy), neither WAIT nor FAIL, so the L3 pin
+# still advances.
 # Evidence once seen is remembered for this installation. Exit 1 if anything FAILed.
 set -uo pipefail
 
@@ -42,7 +44,7 @@ MSG_STOP=8811e6df2a8e40f58a94cea26f8ebf14      #                SD_MESSAGE_SLEEP
 mkdir -p "$SEEN" "$STATE/clean"
 # shellcheck disable=SC1091
 . /usr/lib/os-release
-NPASS=0; NFAIL=0; NWAIT=0; NYOU=0
+NPASS=0; NFAIL=0; NWAIT=0; NYOU=0; NDEFER=0
 OUT=$(mktemp); trap 'rm -f "$OUT"' EXIT
 
 # ── output ───────────────────────────────────────────────────────────
@@ -57,6 +59,7 @@ fail()  { emit FAIL "$1" "$2"; NFAIL=$((NFAIL + 1)); }
 wait_() { emit WAIT "$1" "$2 — $3"; NWAIT=$((NWAIT + 1)); }
 you()   { emit YOU "$1" "$2"; NYOU=$((NYOU + 1)); }
 info()  { emit INFO "$1" "$2"; }
+defer() { emit DEFER "$1" "$2"; NDEFER=$((NDEFER + 1)); }
 
 # check ID DESC CMD... — live state: exit 0 = PASS, else FAIL (output shown)
 check() {
@@ -90,6 +93,15 @@ as_session() {
 }
 enabled() { local u; for u in "$@"; do [[ "$(systemctl is-enabled "$u" 2>/dev/null)" == enabled ]] || { echo "$u is not enabled"; return 1; }; done; }
 age_h() { local f="$NSTATE/last-$1"; [[ -r "$f" ]] && echo $(( ($(date +%s) - $(cat "$f")) / 3600 )) || echo 9999; }
+# S2b: the off-site copy is deferred while nightly.env sets OFFSITE_DEFERRED; cosmic-nightly
+# records since when. Then the B2 checks show DEFER and the DAS copy alone counts.
+NENV=/etc/fedora-cosmic-atomic/nightly.env
+DEFERRED=""
+if [[ -r $NENV ]]; then
+    # shellcheck disable=SC1090
+    v=$(set +u; . "$NENV" >/dev/null 2>&1; echo "${OFFSITE_DEFERRED:-}")
+    [[ -n "$v" && "$v" != 0 ]] && DEFERRED=$(cat "$NSTATE/offsite-deferred-since" 2>/dev/null || echo "today (the next nightly run records the date)")
+fi
 journal_since() { journalctl -q --no-pager -o cat --since "@$1" "${@:2}" 2>/dev/null; }
 
 # ── what the journal says about sleep (one pass, parsed in Python) ───
@@ -236,8 +248,12 @@ ev_audio() {
 }
 ev_print() { lpstat -W completed -o 2>/dev/null | grep -q . && { lpstat -W completed -o | tail -1 | awk '{print $1}'; return 0; }; return 1; }
 ev_restore_probe() {  # J1 compares one home file and the manifest from each copy, nightly
-    [[ -r /etc/fedora-cosmic-atomic/nightly.env ]] || { echo "backups not set up yet (M11)"; return 1; }
+    [[ -r $NENV ]] || { echo "backups not set up yet (M11)"; return 1; }
     local l o; l=$(age_h restore-probe-local); o=$(age_h restore-probe-offsite)
+    if [[ -n "$DEFERRED" ]]; then   # S2b: the DAS copy alone
+        (( l < 9999 )) && { echo "DAS ${l} h ago"; return 0; }
+        echo "DAS never"; return 1
+    fi
     (( l < 9999 && o < 9999 )) && { echo "DAS ${l} h ago, B2 ${o} h ago"; return 0; }
     echo "DAS $( ((l == 9999)) && echo never || echo "$l h ago"), B2 $( ((o == 9999)) && echo never || echo "$o h ago")"; return 1
 }
@@ -513,20 +529,26 @@ if [[ $USER_LAYER == 1 || ( $USER_LAYER == auto && $USER_DONE == 1 ) ]]; then
 fi
 
 section "backups and VPN — evidence from use"
-if [[ -r /etc/fedora-cosmic-atomic/nightly.env ]]; then
-    check R1 "restore point within a day (nightly report)" sh -c \
-        "l=$(age_h local); o=$(age_h offsite); n=\$(( l < o ? l : o )); [ \$n -le 26 ] || { echo \"newest copy \$n h old\"; exit 1; }"
+if [[ -r $NENV ]]; then
+    check R1 "restore point within a day (nightly report)${DEFERRED:+; the DAS alone while off-site is deferred}" sh -c \
+        "l=$(age_h local); o=$([[ -n "$DEFERRED" ]] && echo 9999 || age_h offsite); n=\$(( l < o ? l : o )); [ \$n -le 26 ] || { echo \"newest copy \$n h old\"; exit 1; }"
 else
     wait_ R1 "restore point within a day" "M11 sets up the backups"
 fi
-evidence S2 "restore probe: a file back from the DAS and from B2, identical" "a night with the DAS attached and one online" ev_restore_probe
+if [[ -n "$DEFERRED" ]]; then
+    # A separate evidence key: when the deferral ends, the B2 half has to be seen afresh.
+    evidence S2 "restore probe: a file back from the DAS, identical (B2 deferred)" "a night with the DAS attached" ev_restore_probe
+    defer S2b "off-site copy (B2) deferred since $DEFERRED — no copy outside the house until OFFSITE_DEFERRED is removed"
+else
+    evidence S2 "restore probe: a file back from the DAS and from B2, identical" "a night with the DAS attached and one online" ev_restore_probe
+fi
 [[ -r $NSTATE/report.txt ]] && check S2 "the last nightly restore probe found no difference" sh -c \
     "! grep '^FAIL  restore probe' '$NSTATE/report.txt'"
 evidence N4 "a VPN tunnel with routes and DNS working from the host, dev and a container" "connect the VPN once (the login is yours)" ev_tunnel
 you N4 "the VPN logins; which method stays (N4/N5 trial) is your call"
 
 # ── result ───────────────────────────────────────────────────────────
-section "result: $NPASS pass, $NFAIL fail, $NWAIT waiting for evidence, $NYOU yours"
+section "result: $NPASS pass, $NFAIL fail, $NWAIT waiting for evidence, $NYOU yours$( ((NDEFER)) && echo ", $NDEFER deferred")"
 
 # L3: known-good. The record of clean days per deployment; the first complete acceptance
 # pins the booted deployment; a newer one that stays clean 7 days takes the pin over.
@@ -566,7 +588,7 @@ pin_logic
 
 if [[ $RECORD == 1 ]]; then
     cp "$OUT" "$STATE/latest.txt"; chmod 0644 "$STATE/latest.txt"
-    echo "Acceptance: $NPASS pass, $NFAIL fail, $NWAIT waiting, $NYOU yours — $STATE/latest.txt"
-    grep -E '^(FAIL|INFO  L3)' "$OUT" | sed 's/^/  /'
+    echo "Acceptance: $NPASS pass, $NFAIL fail, $NWAIT waiting, $NYOU yours$( ((NDEFER)) && echo ", $NDEFER deferred") — $STATE/latest.txt"
+    grep -E '^(FAIL|INFO  L3|DEFER)' "$OUT" | sed 's/^/  /'
 fi
 [[ $NFAIL == 0 ]]

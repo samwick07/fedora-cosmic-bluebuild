@@ -5,19 +5,24 @@ where things stand and the exact next step. No personal values here (write `$SIT
 Private facts: `dotfiles/.migration-prep/HANDOFF.md`; the story so far:
 `dotfiles/.migration-prep/JOURNAL.md`.
 
-Last updated: 2026-10-05 (B2 deferred until the migration settles; next is the 2TB install)
+Last updated: 2026-10-06 (S2b deferral built; rsync exclude bug fixed; next is the 2TB install)
 
 ## Where things stand
 - **Built, not yet run on hardware.** The laptop runs the 4TB Workstation; the 2TB waits in
   the DAS enclosure for a fresh install. Image, user layer and migration are written,
   linted, unit-tested with stubs, and the image builds green in CI.
-- **Open PRs:** this one (S2b deferral proposed; also lands the NAS design, #22, which merged
-  into the already-merged #21 branch instead of `main`). Drift engine (O2, F11) merged
-  2026-10-05 (#20); built later in planned sprints, after step 3.
-- **B2 off-site: deferred** (S2b, proposed) until frmwrk's migration has settled. Layout
-  decided: one restic repository that frmwrk creates and dsktp joins later (S2f); the Win11
-  VM disk gets `discard='unmap'` (V6). No off-site copy until then (accepted risk). dsktp's
-  backups are postponed with the rest of dsktp (spec 7.2).
+- **Open PRs:** this one (`OFFSITE_DEFERRED` in J1 and `cosmic-acceptance`; the rsync fix
+  below), and its dotfiles companion (M11/M12 honour the deferral; repository path per S2f).
+  Drift engine (O2, F11) merged 2026-10-05 (#20); built later in sprints, after step 3.
+- **B2 off-site: deferred** (S2b, confirmed #23, built here) until frmwrk's migration has
+  settled. `OFFSITE_DEFERRED=1` in `nightly.env`: J1 skips B2 and every report says since
+  when; acceptance shows `DEFER S2b` and counts the DAS alone (R1, restore probe), so the L3
+  pin still advances. Layout decided: one restic repository that frmwrk creates and dsktp
+  joins later (S2f); the Win11 VM disk gets `discard='unmap'` (V6). No off-site copy until
+  then (accepted risk). dsktp's backups are postponed with the rest of dsktp (spec 7.2).
+- **Fixed 2026-10-06:** rsync 3.5 (in the image) refuses `--exclude-from=<(…)`, so every
+  DAS snapshot would have failed; the exclude lists are now temp files. Tested in the
+  image container (31 checks, deferred and not).
 - **NAS (confirmed, not bought):** nightly copy to the NAS over any connection, history in its
   snapshots (S2g); the DAS mounted in the NAS as the slow copy of every machine (S2h);
   Syncthing on the NAS as a receive-only hub (S2i); the 2TB becomes a blank replacement disk
@@ -50,10 +55,8 @@ Last updated: 2026-10-05 (B2 deferred until the migration settles; next is the 2
   restic to B2 (`--tag nightly`), restore probe, hourly catch-up; set up by M11.
 
 ## Next (in order)
-1. Merge this PR (confirms the S2b deferral; lands S2g–S2i, L4). Then a small build PR:
-   `OFFSITE_DEFERRED` in `cosmic-nightly`, `cosmic-acceptance` (DEFERRED; DAS alone for the
-   restore probe and R1) and `nightly.example.env` (set, plus a generic repository path).
-   Check that the 06:17 UTC cron fires; if not, open an issue.
+1. Merge this PR and the dotfiles companion; the next nightly build (cron fires daily,
+   checked 2026-10-06) carries them into the image.
 2. 2TB, image layer alone: drive into the laptop, Secure Boot off, `docs/install.md`
    (boot line `inst.ks=… cosmic.disk=<by-id name> cosmic.hostname=frmwrk-test`) → reboot
    once → `sudo cosmic-acceptance`, then `--exercise`. Done when the image row of spec

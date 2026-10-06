@@ -30,7 +30,7 @@ Anything changed by hand outside these shows up in the next drift report.
 
 | Path | Purpose |
 | --- | --- |
-| `/usr/bin/cosmic-nightly` | The one scheduled job (04:30 + hourly catch-up): manifest, the daily home snapshot, backups to the DAS and B2, drift report, staged upgrades (image, flatpaks, Homebrew, boxes), report. Never reboots. `--dry-run`, `--catch-up` |
+| `/usr/bin/cosmic-nightly` | The one scheduled job (04:30 + hourly catch-up): manifest, the daily home snapshot, backups to the DAS and B2 (B2 skipped and reported while `OFFSITE_DEFERRED` is set, S2b), drift report, staged upgrades (image, flatpaks, Homebrew, boxes), report. Never reboots. `--dry-run`, `--catch-up` |
 | `/usr/bin/cosmic-nightly-notify` | Shows the report once at login |
 | `/usr/bin/cosmic-acceptance` | Spec section 6 with nothing ticked by hand: live state + evidence from use (PASS / FAIL / WAIT / YOU); `--exercise` runs the active trials once (it suspends and hibernates); the nightly job runs it daily (`--record`) and it pins known-good deployments (L3) |
 | `cosmic-evidence-sleep` (service), `cosmic-evidence-tunnel@` (udev) | Recorders for acceptance: battery and Bluetooth around every sleep; routes and DNS whenever a VPN tunnel comes up. Journal only (`journalctl -t cosmic-evidence`) |
